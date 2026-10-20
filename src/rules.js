@@ -142,7 +142,67 @@ function evaluateSubmissions(submissions, ledger, orderIndex, customersByPhone, 
   return { credits: credits, review: review };
 }
 
+var EXPORT_HEADERS = ['Họ và tên', 'Số điện thoại', 'Email', 'Phường/Xã', 'Quận/Huyện', 'Tỉnh/Thành phố',
+  'Chi tiêu tích luỹ trong kỳ', 'Tổng chi tiêu', 'Điểm thưởng', 'Ngày đặt hàng cuối cùng'];
+
+function firstNonEmpty_(values) {
+  for (var i = 0; i < values.length; i++) {
+    if (values[i] !== null && values[i] !== undefined && String(values[i]).trim() !== '') return String(values[i]).trim();
+  }
+  return '';
+}
+
+/**
+ * Group credits by phone and merge with current Haravan customers (spec R5, R12–R16).
+ * Haravan name/email/province win; form/order values only fill blanks. Sorted by phone.
+ */
+function buildExportRows(credits, customersByPhone) {
+  var groups = new Map();
+  credits.forEach(function (c) {
+    if (!groups.has(c.phone)) groups.set(c.phone, []);
+    groups.get(c.phone).push(c);
+  });
+
+  var rows = [];
+  groups.forEach(function (list, phone) {
+    list.sort(function (a, b) {
+      return parseFormTimestamp(a.submission.timestamp) - parseFormTimestamp(b.submission.timestamp);
+    });
+    var cust = customersByPhone.get(phone);
+    var newValue = 0, newPoints = 0, lastOrderAt = (cust && cust.lastOrderAt) || null;
+    list.forEach(function (c) {
+      newValue += c.order.valueAfterDiscount;
+      newPoints += c.points;
+      if (c.order.createdAt && (!lastOrderAt || c.order.createdAt > lastOrderAt)) lastOrderAt = c.order.createdAt;
+    });
+    var formNames = list.map(function (c) { return c.submission.name; });
+    var formEmails = list.map(function (c) { return c.submission.email; });
+    var orderProvinces = list.map(function (c) { return c.order.province; });
+    rows.push({
+      name: firstNonEmpty_([cust && cust.name].concat(formNames)),
+      phone: phone,
+      email: firstNonEmpty_([cust && cust.email].concat(formEmails)),
+      province: firstNonEmpty_([cust && cust.province].concat(orderProvinces)),
+      periodSpent: ((cust && cust.periodSpent) || 0) + newValue,
+      totalSpent: ((cust && cust.totalSpent) || 0) + newValue,
+      points: ((cust && cust.points) || 0) + newPoints,
+      lastOrderAt: lastOrderAt,
+    });
+  });
+  rows.sort(function (a, b) { return a.phone < b.phone ? -1 : a.phone > b.phone ? 1 : 0; });
+  return rows;
+}
+
+/** ExportRow -> the 10 cells of one upload line. */
+function formatExportRow(r) {
+  return [r.name, r.phone, r.email, '', '', r.province, formatVnd(r.periodSpent), formatVnd(r.totalSpent),
+    r.points, r.lastOrderAt ? formatIsoVN(r.lastOrderAt) : ''];
+}
+
 if (typeof module !== 'undefined') module.exports = {
+  EXPORT_HEADERS: EXPORT_HEADERS,
+  buildExportRows: buildExportRows,
+  formatExportRow: formatExportRow,
   REASONS: REASONS,
   buildOrderIndex: buildOrderIndex,
   computePoints: computePoints,
