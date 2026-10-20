@@ -199,7 +199,48 @@ function formatExportRow(r) {
     r.points, r.lastOrderAt ? formatIsoVN(r.lastOrderAt) : ''];
 }
 
+var REPORT_CHANNELS = ['Total', 'Shopee', 'Tiktok'];
+
+/**
+ * Monthly report like the old "Tổng Kết" sheet, from ledger entries of the given year.
+ * Month = Vietnam-time month of the form claim (claimedAt); AOV = value / distinct phones.
+ */
+function buildReport(ledger, year) {
+  var acc = {};
+  REPORT_CHANNELS.forEach(function (ch) {
+    acc[ch] = { phones: [], value: [], points: [] };
+    for (var m = 0; m < 12; m++) { acc[ch].phones.push(new Set()); acc[ch].value.push(0); acc[ch].points.push(0); }
+  });
+  ledger.forEach(function (e) {
+    if (!e.claimedAt) return;
+    var local = new Date(e.claimedAt.getTime() + VN_OFFSET_MS);
+    if (local.getUTCFullYear() !== year) return;
+    var m = local.getUTCMonth();
+    var ch = String(e.channel || '').trim().toLowerCase();
+    ['Total'].concat(REPORT_CHANNELS.filter(function (c) { return c.toLowerCase() === ch; })).forEach(function (c) {
+      acc[c].phones[m].add(e.phone);
+      acc[c].value[m] += Number(e.value) || 0;
+      acc[c].points[m] += Number(e.points) || 0;
+    });
+  });
+  var out = {};
+  REPORT_CHANNELS.forEach(function (ch) {
+    var a = acc[ch];
+    var phones = a.phones.map(function (s) { return s.size; });
+    out[ch] = {
+      phones: phones,
+      value: a.value,
+      points: a.points,
+      pointValue: a.points.map(function (p) { return p * 1000; }),
+      aov: a.value.map(function (v, i) { return phones[i] ? Math.round(v / phones[i]) : 0; }),
+    };
+  });
+  return out;
+}
+
 if (typeof module !== 'undefined') module.exports = {
+  REPORT_CHANNELS: REPORT_CHANNELS,
+  buildReport: buildReport,
   EXPORT_HEADERS: EXPORT_HEADERS,
   buildExportRows: buildExportRows,
   formatExportRow: formatExportRow,
