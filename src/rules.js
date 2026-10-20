@@ -58,7 +58,95 @@ function formatIsoVN(d) {
     '+07:00';
 }
 
+var REASONS = {
+  TAKEN_BY_OTHER: 'Đơn đã được người khác tích',
+  PHONE_INVALID: 'SĐT sai',
+  NOT_FOUND: 'Không tìm thấy (khai sai, scam, hoặc đơn trước 08/2025)',
+  NOT_DELIVERED: 'Chờ giao',
+  WAITING_DAYS: 'Chờ đủ N ngày',
+  UNKNOWN_TIER: 'Hạng không xác định',
+};
+
+var DEFAULT_TIER = 'Silver';
+var DAY_MS = 24 * 60 * 60 * 1000;
+
+/** Index orders by marketplace code, partner tracking code and Haravan order name. Voided orders are skipped. */
+function buildOrderIndex(orders) {
+  var index = new Map();
+  orders.forEach(function (o) {
+    if (o.voided) return;
+    [o.marketplaceCode, o.partnerTrackingCode, o.name].forEach(function (k) {
+      var key = normalizeCode(k);
+      if (key && !index.has(key)) index.set(key, o);
+    });
+  });
+  return index;
+}
+
+/** Points for one order at the given tier; empty tier counts as Silver; null for an unknown tier. */
+function computePoints(value, tier, settings) {
+  var t = tier || DEFAULT_TIER;
+  if (!Object.prototype.hasOwnProperty.call(settings.multipliers, t)) return null;
+  var multiplier = settings.multipliers[t];
+  return { multiplier: multiplier, points: Math.round(value / settings.vndPerPoint * multiplier) };
+}
+
+/**
+ * Apply the 8 checks of spec §5 to every form claim, oldest first.
+ * Returns {credits: Credit[], review: ReviewItem[]}; silently skipped claims appear in neither.
+ */
+function evaluateSubmissions(submissions, ledger, orderIndex, customersByPhone, settings, now) {
+  var ledgerPhone = new Map();
+  ledger.forEach(function (e) { ledgerPhone.set(normalizeCode(e.code), e.phone); });
+
+  var sorted = submissions.slice().sort(function (a, b) {
+    var ta = parseFormTimestamp(a.timestamp), tb = parseFormTimestamp(b.timestamp);
+    var diff = (ta ? ta.getTime() : 0) - (tb ? tb.getTime() : 0);
+    return diff || a.row - b.row;
+  });
+
+  var claimed = new Map();
+  var credits = [];
+  var review = [];
+  function warn(s, reason) { review.push({ submission: s, kind: 'warn', reason: reason }); }
+  function wait(s, reason) { review.push({ submission: s, kind: 'wait', reason: reason }); }
+
+  sorted.forEach(function (s) {
+    var code = normalizeCode(s.codeRaw);
+    var phone = normalizePhone(s.phoneRaw);
+    if (ledgerPhone.has(code)) {
+      if (ledgerPhone.get(code) !== phone) warn(s, REASONS.TAKEN_BY_OTHER);
+      return;
+    }
+    if (claimed.has(code)) {
+      if (claimed.get(code) !== phone) warn(s, REASONS.TAKEN_BY_OTHER);
+      return;
+    }
+    if (!phone) return warn(s, REASONS.PHONE_INVALID);
+    claimed.set(code, phone);
+
+    var order = orderIndex.get(code);
+    if (!order) return warn(s, REASONS.NOT_FOUND);
+    if (!order.delivered || !order.deliveredAt) return wait(s, REASONS.NOT_DELIVERED);
+    if (now.getTime() - order.deliveredAt.getTime() < settings.waitDays * DAY_MS) {
+      return wait(s, REASONS.WAITING_DAYS.replace('N', String(settings.waitDays)));
+    }
+
+    var customer = customersByPhone.get(phone);
+    var tier = (customer && customer.tier) || DEFAULT_TIER;
+    var p = computePoints(order.valueAfterDiscount, tier, settings);
+    if (!p) return warn(s, REASONS.UNKNOWN_TIER);
+    credits.push({ submission: s, order: order, phone: phone, tier: tier, multiplier: p.multiplier, points: p.points });
+  });
+
+  return { credits: credits, review: review };
+}
+
 if (typeof module !== 'undefined') module.exports = {
+  REASONS: REASONS,
+  buildOrderIndex: buildOrderIndex,
+  computePoints: computePoints,
+  evaluateSubmissions: evaluateSubmissions,
   normalizePhone: normalizePhone,
   normalizeCode: normalizeCode,
   parseFormTimestamp: parseFormTimestamp,
