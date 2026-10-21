@@ -163,6 +163,25 @@ function batchSummaryRows(meta, exportRows, credits, review) {
   ];
 }
 
+/** Keep only cache rows (B name, C marketplace code, D tracking code) whose code is in the claimed-code set. */
+function filterOrderRowsByCodes(rows, codeSet) {
+  return rows.filter(function (r) {
+    return codeSet.has(normalizeCode(r[1])) || codeSet.has(normalizeCode(r[2])) || codeSet.has(normalizeCode(r[3]));
+  });
+}
+
+/** Sorted row numbers -> [first, last] blocks; a gap larger than maxGap starts a new block. */
+function planUpdateBlocks(rowNumbers, maxGap) {
+  var rows = rowNumbers.slice().sort(function (a, b) { return a - b; });
+  var blocks = [];
+  rows.forEach(function (r) {
+    var b = blocks[blocks.length - 1];
+    if (b && r - b[1] <= maxGap) b[1] = r;
+    else blocks.push([r, r]);
+  });
+  return blocks;
+}
+
 var MONTHS = ['JAN', 'FEB', 'MAR', 'APR', 'MAY', 'JUN', 'JUL', 'AUG', 'SEP', 'OCT', 'NOV', 'DEC'];
 
 /** buildReport() output -> rows for the "Báo cáo" sheet: one 8-row block per channel. */
@@ -338,6 +357,8 @@ if (typeof module !== 'undefined') module.exports = {
   rowToSubmission: rowToSubmission,
   editRowsToLedgerRows: editRowsToLedgerRows,
   orderToRow: orderToRow,
+  planUpdateBlocks: planUpdateBlocks,
+  filterOrderRowsByCodes: filterOrderRowsByCodes,
   reportToRows: reportToRows,
   creditsToLedgerRows: creditsToLedgerRows,
   reviewToRows: reviewToRows,

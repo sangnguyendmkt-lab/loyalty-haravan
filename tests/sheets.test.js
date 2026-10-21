@@ -78,3 +78,23 @@ test('rowToOrder reads sheet booleans/strings and empty delivery date', () => {
   assert.equal(o.voided, false);
   assert.equal(o.valueAfterDiscount, 140000);
 });
+
+const { filterOrderRowsByCodes } = require('../src/sheets.js');
+
+test('filterOrderRowsByCodes keeps cache rows whose name, marketplace or tracking code was claimed', () => {
+  const rows = [
+    ['1', '260701HXNC6DVH', '260701HXNC6DVH', 'SPXVN062001252717'],
+    ['2', '260701AAAA', '260701AAAA', 'SPXVN1'],
+    ['3', '586699762747147405', '586699762747147405', ''],
+    ['4', 'X', 'X', 'SPXVN999'],
+  ];
+  const codes = new Set(['260701HXNC6DVH', '586699762747147405', 'SPXVN999']);
+  assert.deepEqual(filterOrderRowsByCodes(rows, codes).map(r => r[0]), ['1', '3', '4']);
+});
+
+const { planUpdateBlocks } = require('../src/sheets.js');
+
+test('planUpdateBlocks groups nearby rows into blocks and splits on large gaps', () => {
+  assert.deepEqual(planUpdateBlocks([10, 12, 11, 700, 705, 3000], 500), [[10, 12], [700, 705], [3000, 3000]]);
+  assert.deepEqual(planUpdateBlocks([], 500), []);
+});

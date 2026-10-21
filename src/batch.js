@@ -37,14 +37,28 @@ function syncOrders(deadlineMs) {
   }
 
   var fetched = 0;
+  var updates = new Map(); // sheet row -> new values, written in blocks (one setValues per order is far too slow)
+  function flush() {
+    planUpdateBlocks(Array.from(updates.keys()), 500).forEach(function (b) {
+      var range = sh.getRange(b[0], 1, b[1] - b[0] + 1, HEADERS[SHEETS.ORDERS].length);
+      var values = range.getValues();
+      for (var r = b[0]; r <= b[1]; r++) if (updates.has(r)) values[r - b[0]] = updates.get(r);
+      range.setNumberFormat('@').setValues(values);
+    });
+    updates.clear();
+  }
   while (true) {
-    if (Date.now() > deadlineMs) return { done: false, fetched: fetched };
+    if (Date.now() > deadlineMs) {
+      flush();
+      p.setProperty(SYNC.PAGE, String(page));
+      return { done: false, fetched: fetched };
+    }
     var items = haravanGet('orders.json', Object.assign({ limit: 50, page: page }, params)).orders || [];
     var appends = [];
     items.forEach(function (raw) {
       var row = orderToRow(toOrder(raw), String(raw.updated_at || ''));
       var at = rowById.get(row[0]);
-      if (at) sh.getRange(at, 1, 1, row.length).setValues([row]);
+      if (at) updates.set(at, row);
       else appends.push(row);
     });
     if (appends.length) {
@@ -55,19 +69,32 @@ function syncOrders(deadlineMs) {
     fetched += items.length;
     if (items.length < 50) break;
     page++;
-    p.setProperty(SYNC.PAGE, String(page));
+    if (updates.size >= 2000) flush(); // keep memory bounded; the saved page must never run ahead of written data
+    if (!updates.size) p.setProperty(SYNC.PAGE, String(page));
   }
+  flush();
   p.setProperty(SYNC.CURSOR, runStart);
   p.deleteProperty(SYNC.PAGE);
   p.deleteProperty(SYNC.RUN_START);
   return { done: true, fetched: fetched };
 }
 
-function readOrders() {
+/**
+ * Orders whose name / marketplace code / tracking code is in codeSet. The cache holds hundreds of thousands
+ * of orders, so it is scanned in chunks and only matching rows are kept in memory.
+ */
+function readOrdersForCodes(codeSet) {
   var sh = sheet_(SHEETS.ORDERS);
   var last = sh.getLastRow();
-  if (last < 2) return [];
-  return sh.getRange(2, 1, last - 1, HEADERS[SHEETS.ORDERS].length).getValues().map(rowToOrder);
+  var width = HEADERS[SHEETS.ORDERS].length;
+  var CHUNK = 20000;
+  var out = [];
+  for (var start = 2; start <= last; start += CHUNK) {
+    var n = Math.min(CHUNK, last - start + 1);
+    filterOrderRowsByCodes(sh.getRange(start, 1, n, width).getValues(), codeSet)
+      .forEach(function (r) { out.push(rowToOrder(r)); });
+  }
+  return out;
 }
 
 /** Time-trigger target: keeps the first big load going in the background, every 5 minutes, until done. */
@@ -186,7 +213,9 @@ function createBatch() {
     }
 
     var now = new Date();
-    var result = evaluateSubmissions(readForm(settings), readLedger(), buildOrderIndex(readOrders()), customers, settings, now);
+    var submissions = readForm(settings);
+    var codes = new Set(submissions.map(function (x) { return normalizeCode(x.codeRaw); }).filter(Boolean));
+    var result = evaluateSubmissions(submissions, readLedger(), buildOrderIndex(readOrdersForCodes(codes)), customers, settings, now);
     var exportRows = buildExportRows(result.credits, customers);
     var meta = { batchId: Utilities.formatDate(now, 'Asia/Ho_Chi_Minh', 'yyyyMMdd-HHmm'), createdAt: nowText_(),
       createdBy: userEmail_(), day: vnDayKey(now) };
