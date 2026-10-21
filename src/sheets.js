@@ -43,6 +43,7 @@ var SETTINGS_DEFAULTS = [
   ['Hệ số Platinum', 5, ''],
   ['Số ngày chờ sau giao', 15, 'Đơn giao thành công đủ số ngày này mới được tích'],
   ['Số ngày giữ đơn', 365, 'Chỉ lưu đơn Shopee/TikTok tạo trong số ngày gần nhất này; đơn cũ hơn tự xoá'],
+  ['Báo cáo từ tháng', "'01/2026", 'Sheet Báo cáo bỏ các tháng trước tháng này (MM/yyyy)'],
   ['Nguồn khách hàng', 'sheet', 'api = lấy qua API; sheet = dán file vào sheet "Khách hàng Haravan"'],
 ];
 
@@ -83,6 +84,16 @@ function rowToLedger(r) {
   };
 }
 
+/** "01/2026", "2026-01" or a date cell -> "yyyy-MM"; fallback when blank or unreadable. */
+function monthSetting_(v, fallback) {
+  if (v instanceof Date && !isNaN(v.getTime())) return vnMonthKey(v);
+  var t = String(v === null || v === undefined ? '' : v).trim();
+  var m = /^(\d{1,2})\/(\d{4})$/.exec(t);
+  if (m) return m[2] + '-' + ('0' + m[1]).slice(-2);
+  m = /^(\d{4})-(\d{2})/.exec(t);
+  return m ? m[1] + '-' + m[2] : fallback;
+}
+
 function parseSettingsRows(rows) {
   var byLabel = {};
   var multipliers = {};
@@ -101,6 +112,7 @@ function parseSettingsRows(rows) {
     multipliers: multipliers,
     waitDays: isNaN(parseFloat(byLabel['Số ngày chờ sau giao'])) ? 15 : toNumber_(byLabel['Số ngày chờ sau giao']),
     retentionDays: isNaN(parseFloat(byLabel['Số ngày giữ đơn'])) ? 365 : toNumber_(byLabel['Số ngày giữ đơn']),
+    reportFromMonth: monthSetting_(byLabel['Báo cáo từ tháng'], '2026-01'),
     customerSource: String(byLabel['Nguồn khách hàng'] || 'api').trim().toLowerCase() === 'sheet' ? 'sheet' : 'api',
   };
 }
@@ -446,9 +458,11 @@ function protectSheets() {
 
 /** Rewrite the "Báo cáo" sheet for the given year (default: current year in Vietnam). */
 function writeReport() {
+  ensureSetting_('Báo cáo từ tháng');
+  var settings = readSettings();
   var ledger = readLedger();
   var orderDates = backfillLedgerOrderDates_(ledger);
-  var rows = reportToRows(buildReport(ledger, orderDates));
+  var rows = reportToRows(buildReport(ledger, orderDates, settings.reportFromMonth));
   var sh = sheet_(SHEETS.REPORT);
   sh.getRange(1, 1, sh.getMaxRows(), sh.getMaxColumns()).breakApart();
   sh.clear();
@@ -492,6 +506,16 @@ function backfillLedgerOrderDates_(ledger) {
   });
   if (changed) range.setValues(dates);
   return found;
+}
+
+/** Add a SETTINGS_DEFAULTS row missing from an older "Cài đặt" sheet. */
+function ensureSetting_(label) {
+  var sh = sheet_(SHEETS.SETTINGS);
+  var last = sh.getLastRow();
+  var labels = last < 2 ? [] : sh.getRange(2, 1, last - 1, 1).getValues().map(function (r) { return String(r[0]).trim(); });
+  if (labels.indexOf(label) >= 0) return;
+  var row = SETTINGS_DEFAULTS.filter(function (r) { return r[0] === label; })[0];
+  if (row) sh.getRange(last + 1, 1, 1, 3).setValues([row]);
 }
 
 /** Menu 📊 */

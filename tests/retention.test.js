@@ -34,3 +34,11 @@ test('planPruneBlocks finds rows to delete in a cache sorted by source then crea
   assert.deepEqual(planPruneBlocks(rows, new Date('2025-10-21T00:00:00Z'), 2), [[9, 9], [7, 7], [2, 5]]);
   assert.deepEqual(planPruneBlocks([], new Date(), 2), []);
 });
+
+test('parseSettingsRows reads "Báo cáo từ tháng" as text, date or blank', () => {
+  const { parseSettingsRows } = require('../src/sheets.js');
+  assert.equal(parseSettingsRows([['Báo cáo từ tháng', '01/2026']]).reportFromMonth, '2026-01');
+  assert.equal(parseSettingsRows([['Báo cáo từ tháng', '3/2026']]).reportFromMonth, '2026-03');
+  assert.equal(parseSettingsRows([['Báo cáo từ tháng', new Date('2026-02-01T00:00:00+07:00')]]).reportFromMonth, '2026-02');
+  assert.equal(parseSettingsRows([]).reportFromMonth, '2026-01');
+});

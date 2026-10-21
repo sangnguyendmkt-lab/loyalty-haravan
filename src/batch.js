@@ -196,10 +196,19 @@ function writeFormStatus_() {
   }
 }
 
-/** Menu 📋 */
+/** Menu 📋: rebuild now, and make sure it also rebuilds itself every hour. */
 function refreshFormStatus() {
   writeFormStatus_();
-  SpreadsheetApp.getUi().alert('📋 Đã cập nhật sheet "' + SHEETS.FORM_STATUS + '".');
+  var exists = ScriptApp.getProjectTriggers().some(function (t) { return t.getHandlerFunction() === 'autoFormStatus'; });
+  if (!exists) ScriptApp.newTrigger('autoFormStatus').timeBased().everyHours(1).create();
+  SpreadsheetApp.getUi().alert('📋 Đã cập nhật sheet "' + SHEETS.FORM_STATUS + '". Sheet này sẽ tự cập nhật mỗi giờ.');
+}
+
+/** Hourly trigger: skipped when someone is working on a batch; the next hour catches up. */
+function autoFormStatus() {
+  var lock = LockService.getDocumentLock();
+  if (!lock.tryLock(1000)) return;
+  try { writeFormStatus_(); } finally { lock.releaseLock(); }
 }
 
 /** ✅ step: apply planReviewOnConfirm to "Cần kiểm tra" and remember the dropped keys. */

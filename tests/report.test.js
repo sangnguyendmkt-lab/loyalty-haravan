@@ -37,3 +37,14 @@ test('total customers are distinct over the whole period', () => {
   ]);
   assert.deepEqual(r.byClaim.total.Shopee, { orders: 2, customers: 1, points: 2 });
 });
+
+test('buildReport leaves out months before the report start month, keeps "Không rõ"', () => {
+  const r = buildReport([
+    entry('A', '0901', 'Shopee', '2026-01-05T03:00:00Z', '2025-12-20T03:00:00Z', 1),
+    entry('B', '0902', 'Shopee', '2026-01-05T03:00:00Z', '2026-01-02T03:00:00Z', 2),
+    entry('C', '0903', 'Shopee', '2026-01-05T03:00:00Z', null, 4),
+  ], new Map(), '2026-01');
+  assert.deepEqual(r.byOrder.months, ['2026-01', UNKNOWN_MONTH]);
+  assert.deepEqual(r.byOrder.total.Shopee, { orders: 2, customers: 2, points: 6 });
+  assert.deepEqual(r.byClaim.total.Shopee, { orders: 3, customers: 3, points: 7 });
+});
