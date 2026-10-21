@@ -114,6 +114,7 @@ function startOrderSync() {
 
 var OPEN_BATCH_KEY = 'OPEN_BATCH';
 var CUSTOMERS_UPDATED_KEY = 'CUSTOMERS_UPDATED_AT';
+var LAST_CONFIRM_KEY = 'LAST_CONFIRM_AT';
 var BATCH_DATA_ROW = 9; // summary in rows 1-6, header in row 8, upload rows from row 9
 
 function openBatch_() {
@@ -129,10 +130,13 @@ function loadCustomers_(settings) {
   if (settings.customerSource !== 'sheet') {
     throw new Error('API Haravan không có điểm thưởng/hạng. Đặt "Nguồn khách hàng" = sheet trong Cài đặt.');
   }
-  var updated = props_().getProperty(CUSTOMERS_UPDATED_KEY);
-  if (!updated || vnDayKey(new Date(updated)) !== vnDayKey(new Date())) {
-    throw new Error('Dữ liệu khách hàng chưa được cập nhật hôm nay.\n\nHãy xuất file khách hàng mới nhất từ Haravan và dán vào sheet "' +
-      SHEETS.CUSTOMERS + '" (kể cả dòng tiêu đề), rồi bấm 🚀 lại.');
+  var fresh = customersFreshness(props_().getProperty(CUSTOMERS_UPDATED_KEY), props_().getProperty(LAST_CONFIRM_KEY), new Date());
+  if (fresh !== 'ok') {
+    throw new Error((fresh === 'before-upload'
+      ? 'Dữ liệu khách hàng được dán TRƯỚC lần upload gần nhất nên chưa có điểm vừa cộng.'
+      : 'Dữ liệu khách hàng chưa được cập nhật hôm nay.') +
+      '\n\nHãy xuất file khách hàng mới nhất từ Haravan, xoá sạch sheet "' + SHEETS.CUSTOMERS +
+      '" rồi dán vào (kể cả dòng tiêu đề), sau đó bấm 🚀 lại.');
   }
   return customersFromSheetRows(sheet_(SHEETS.CUSTOMERS).getDataRange().getValues());
 }
@@ -190,7 +194,11 @@ function createBatch() {
     // Hidden per-order detail, moved to the ledger on confirm.
     clearBatchSheets_();
     var detail = creditsToLedgerRows(result.credits, meta.batchId);
-    if (detail.length) sheet_(SHEETS.PENDING).getRange(2, 1, detail.length, detail[0].length).setValues(detail);
+    if (detail.length) {
+      var pend = sheet_(SHEETS.PENDING);
+      pend.getRange(2, 1, detail.length, 3).setNumberFormat('@');
+      pend.getRange(2, 1, detail.length, detail[0].length).setValues(detail);
+    }
 
     // Visible batch sheet: summary + the 10 upload columns.
     var b = sheet_(SHEETS.BATCH);
@@ -324,17 +332,22 @@ function confirmBatchSubmit(mode, failedText) {
     var split = splitPendingByFailed(rows, failed.phones);
     if (split.notInBatch.length) throw new Error('Các SĐT này không có trong đợt: ' + split.notInBatch.join(', '));
 
-    if (split.keep.length) {
-      var ledger = sheet_(SHEETS.LEDGER);
-      ledger.getRange(ledger.getLastRow() + 1, 1, split.keep.length, split.keep[0].length).setValues(split.keep);
+    var ledger = sheet_(SHEETS.LEDGER);
+    var already = ledger.getLastRow() > 1 && ledger.getRange(2, 11, ledger.getLastRow() - 1, 1).getValues()
+      .some(function (r) { return String(r[0]) === meta.batchId; });
+    if (split.keep.length && !already) { // a retry after a half-finished confirm must not append twice
+      var at = ledger.getLastRow() + 1;
+      ledger.getRange(at, 1, split.keep.length, 3).setNumberFormat('@');
+      ledger.getRange(at, 1, split.keep.length, split.keep[0].length).setValues(split.keep);
     }
+    props_().setProperty(LAST_CONFIRM_KEY, new Date().toISOString());
     updateHistory_(meta.batchId, {
       7: failed.phones.length ? 'Đã upload một phần' : 'Đã upload', 8: userEmail_(), 9: nowText_(),
       10: failed.phones.join(', '),
     });
     clearBatchSheets_();
     props_().deleteProperty(OPEN_BATCH_KEY);
-    if (typeof writeReport === 'function') writeReport();
+    try { writeReport(); } catch (e) { /* the confirm itself succeeded; 📊 can rebuild the report */ }
     return '✅ Đã ghi ' + split.keep.length + ' đơn vào "' + SHEETS.LEDGER + '"' +
       (split.failed.length ? '; ' + split.failed.length + ' đơn của khách lỗi sẽ được xét lại đợt sau.' : '.') +
       ' Có thể đóng hộp thoại.';

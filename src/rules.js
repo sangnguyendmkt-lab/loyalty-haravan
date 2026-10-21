@@ -61,6 +61,18 @@ function formatIsoVN(d) {
 /** Vietnam calendar day "yyyy-MM-dd" of a Date. */
 function vnDayKey(d) { return formatIsoVN(d).slice(0, 10); }
 
+/**
+ * Is the pasted customer export usable? It must be from today (VN) and newer than the last confirmed upload,
+ * otherwise its points no longer include what was just uploaded. Returns 'ok' | 'missing' | 'old-day' | 'before-upload'.
+ */
+function customersFreshness(updatedIso, lastConfirmIso, now) {
+  if (!updatedIso) return 'missing';
+  var updated = new Date(updatedIso);
+  if (vnDayKey(updated) !== vnDayKey(now)) return 'old-day';
+  if (lastConfirmIso && updated <= new Date(lastConfirmIso)) return 'before-upload';
+  return 'ok';
+}
+
 var REASONS = {
   TAKEN_BY_OTHER: 'Đơn đã được người khác tích',
   PHONE_INVALID: 'SĐT sai',
@@ -69,7 +81,10 @@ var REASONS = {
   WAITING_DAYS: 'Chờ đủ N ngày',
   UNKNOWN_TIER: 'Hạng không xác định',
   VOIDED: 'Đơn đã huỷ / hoàn / trả hàng',
+  NOT_MARKETPLACE: 'Không phải đơn Shopee/TikTok',
 };
+
+var MARKETPLACE_SOURCE = /shopee|tiktok/i;
 
 var DEFAULT_TIER = 'Silver';
 var DAY_MS = 24 * 60 * 60 * 1000;
@@ -99,8 +114,17 @@ function computePoints(value, tier, settings) {
  * Returns {credits: Credit[], review: ReviewItem[]}; silently skipped claims appear in neither.
  */
 function evaluateSubmissions(submissions, ledger, orderIndex, customersByPhone, settings, now) {
+  // Ledger keys: every typed code, plus "ID:<order id>" when known, so an order is found under any of its codes.
   var ledgerPhone = new Map();
-  ledger.forEach(function (e) { ledgerPhone.set(normalizeCode(e.code), e.phone); });
+  ledger.forEach(function (e) {
+    ledgerPhone.set(normalizeCode(e.code), e.phone);
+    if (e.orderId) ledgerPhone.set('ID:' + e.orderId, e.phone);
+  });
+  function ledgerOwner(order) {
+    var keys = ['ID:' + order.id, normalizeCode(order.marketplaceCode), normalizeCode(order.partnerTrackingCode), normalizeCode(order.name)];
+    for (var i = 0; i < keys.length; i++) if (keys[i] && keys[i] !== 'ID:' && ledgerPhone.has(keys[i])) return ledgerPhone.get(keys[i]);
+    return undefined;
+  }
 
   var sorted = submissions.slice().sort(function (a, b) {
     var ta = parseFormTimestamp(a.timestamp), tb = parseFormTimestamp(b.timestamp);
@@ -108,7 +132,8 @@ function evaluateSubmissions(submissions, ledger, orderIndex, customersByPhone, 
     return diff || a.row - b.row;
   });
 
-  var claimed = new Map();
+  var claimed = new Map();      // typed code -> phone
+  var claimedOrder = new Map(); // order id -> phone (first claimant wins per order, whichever code was typed)
   var credits = [];
   var review = [];
   function warn(s, reason) { review.push({ submission: s, kind: 'warn', reason: reason }); }
@@ -130,6 +155,14 @@ function evaluateSubmissions(submissions, ledger, orderIndex, customersByPhone, 
 
     var order = orderIndex.get(code);
     if (!order) return warn(s, REASONS.NOT_FOUND);
+    var owner = ledgerOwner(order);
+    if (owner === undefined && claimedOrder.has(order.id)) owner = claimedOrder.get(order.id);
+    if (owner !== undefined) {
+      if (owner !== phone) warn(s, REASONS.TAKEN_BY_OTHER);
+      return;
+    }
+    claimedOrder.set(order.id, phone);
+    if (!MARKETPLACE_SOURCE.test(order.source || '')) return warn(s, REASONS.NOT_MARKETPLACE);
     if (order.voided) return warn(s, REASONS.VOIDED);
     if (!order.delivered || !order.deliveredAt) return wait(s, REASONS.NOT_DELIVERED);
     if (now.getTime() - order.deliveredAt.getTime() < settings.waitDays * DAY_MS) {
@@ -268,6 +301,7 @@ function buildReport(ledger, year) {
 
 if (typeof module !== 'undefined') module.exports = {
   vnDayKey: vnDayKey,
+  customersFreshness: customersFreshness,
   parsePhoneList: parsePhoneList,
   splitPendingByFailed: splitPendingByFailed,
   REPORT_CHANNELS: REPORT_CHANNELS,

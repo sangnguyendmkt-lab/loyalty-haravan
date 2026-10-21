@@ -20,7 +20,7 @@ function sub(ts, phone, code, extra) {
 }
 function ord(code, opts) {
   return Object.assign({
-    id: 'id-' + code, name: '#' + code, marketplaceCode: code, partnerTrackingCode: 'TRK' + code,
+    id: 'id-' + code, name: '#' + code, source: 'shopee', marketplaceCode: code, partnerTrackingCode: 'TRK' + code,
     createdAt: new Date('2026-09-01T03:00:00Z'), deliveredAt: new Date(NOW - 20 * DAY),
     delivered: true, voided: false, valueAfterDiscount: 1000000, province: 'Hà Nội',
   }, opts || {});

@@ -39,8 +39,31 @@ function num_(v) {
 
 function date_(v) {
   if (!v) return null;
-  var d = v instanceof Date ? v : new Date(v);
+  var d = v instanceof Date ? v : (parseFormTimestamp(v) || new Date(v)); // dd/MM first: new Date() reads MM/dd
   return isNaN(d.getTime()) ? null : d;
+}
+
+/** Strict number for the customer export: "4.340.000", "1,314,999", 13 → number; anything else non-empty throws. */
+function strictNum_(v, label, phone) {
+  if (v === '' || v === null || v === undefined) return 0;
+  if (typeof v === 'number') return v;
+  var t = String(v).trim();
+  if (/^\d{1,3}(\.\d{3})+$/.test(t)) t = t.replace(/\./g, '');
+  var n = Number(t.replace(/,/g, ''));
+  if (t === '' || isNaN(n)) throw new Error('Cột "' + label + '" của SĐT ' + phone + ' không phải số: "' + v + '"');
+  return n;
+}
+
+function strictDate_(v, label, phone) {
+  if (v === '' || v === null || v === undefined) return null;
+  var d = date_(v);
+  if (!d) throw new Error('Cột "' + label + '" của SĐT ' + phone + ' không phải ngày: "' + v + '"');
+  return d;
+}
+
+/** Header text normalized for matching: NFC, trimmed, lowercase, "lũy" == "luỹ". */
+function headerKey_(h) {
+  return String(h).normalize('NFC').trim().toLowerCase().replace(/lũy/g, 'luỹ');
 }
 
 /** Haravan order JSON -> Order. Value is total_price (after discounts); delivery comes from the carrier status. */
@@ -62,6 +85,7 @@ function toOrder(raw) {
     voided: raw.cancelled_status === 'cancelled' || !!raw.cancelled_at ||
       /refunded|voided/.test(raw.financial_status || '') || returned,
     valueAfterDiscount: num_(raw.total_price),
+    source: String(raw.source_name || raw.source || '').toLowerCase(),
     province: String((raw.shipping_address && raw.shipping_address.province) || ''),
   };
 }
@@ -72,31 +96,40 @@ var CUSTOMER_COLS = {
   points: 'Điểm thưởng', lastOrderAt: 'Ngày đặt hàng cuối cùng',
 };
 
-/** Rows of the pasted Haravan customer export (header found within the first 5 rows) -> Map<phone, Customer>. */
+/**
+ * Rows of the pasted Haravan customer export (header found within the first 5 rows) -> Map<phone, Customer>.
+ * Every column is required and every value must parse: a silent 0 here would wipe points on upload.
+ */
 function customersFromSheetRows(rows) {
+  var phoneKey = headerKey_(CUSTOMER_COLS.phone);
   var h = -1;
   for (var i = 0; i < Math.min(rows.length, 5) && h < 0; i++) {
-    if (rows[i].map(function (c) { return String(c).trim(); }).indexOf(CUSTOMER_COLS.phone) >= 0) h = i;
+    if (rows[i].map(headerKey_).indexOf(phoneKey) >= 0) h = i;
   }
   if (h < 0) throw new Error('Không thấy cột "' + CUSTOMER_COLS.phone + '" trong sheet khách hàng. Hãy dán cả dòng tiêu đề của file xuất từ Haravan.');
-  var header = rows[h].map(function (c) { return String(c).trim(); });
+  var header = rows[h].map(headerKey_);
   var col = {};
-  Object.keys(CUSTOMER_COLS).forEach(function (k) { col[k] = header.indexOf(CUSTOMER_COLS[k]); });
-  function get(r, k) { return col[k] >= 0 ? r[col[k]] : ''; }
+  var missing = [];
+  Object.keys(CUSTOMER_COLS).forEach(function (k) {
+    col[k] = header.indexOf(headerKey_(CUSTOMER_COLS[k]));
+    if (col[k] < 0) missing.push(CUSTOMER_COLS[k]);
+  });
+  if (missing.length) throw new Error('File khách hàng thiếu cột: ' + missing.join(', ') + '. Hãy dán đúng file xuất từ Haravan.');
   var out = new Map();
   rows.slice(h + 1).forEach(function (r) {
-    var phone = normalizePhone(get(r, 'phone'));
+    var phone = normalizePhone(r[col.phone]);
     if (!phone) return;
+    if (out.has(phone)) throw new Error('SĐT ' + phone + ' xuất hiện 2 lần trong sheet khách hàng. Hãy xoá sạch sheet rồi dán lại file mới.');
     out.set(phone, {
       phone: phone,
-      name: String(get(r, 'name') || '').trim(),
-      email: String(get(r, 'email') || '').trim(),
-      province: String(get(r, 'province') || '').trim(),
-      tier: String(get(r, 'tier') || '').trim(),
-      points: num_(get(r, 'points')),
-      totalSpent: num_(get(r, 'totalSpent')),
-      periodSpent: num_(get(r, 'periodSpent')),
-      lastOrderAt: date_(get(r, 'lastOrderAt')),
+      name: String(r[col.name] || '').trim(),
+      email: String(r[col.email] || '').trim(),
+      province: String(r[col.province] || '').trim(),
+      tier: String(r[col.tier] || '').trim(),
+      points: strictNum_(r[col.points], CUSTOMER_COLS.points, phone),
+      totalSpent: strictNum_(r[col.totalSpent], CUSTOMER_COLS.totalSpent, phone),
+      periodSpent: strictNum_(r[col.periodSpent], CUSTOMER_COLS.periodSpent, phone),
+      lastOrderAt: strictDate_(r[col.lastOrderAt], CUSTOMER_COLS.lastOrderAt, phone),
     });
   });
   return out;

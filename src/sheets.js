@@ -26,7 +26,7 @@ HEADERS[SHEETS.HISTORY] = ['Mã đợt', 'Tạo lúc', 'Người tạo', 'Số k
 HEADERS[SHEETS.REVIEW] = ['Dòng form', 'Thời gian khai', 'Kênh', 'SĐT', 'Mã đơn', 'Loại', 'Lý do',
   'Lần đầu thấy', 'Ghi chú'];
 HEADERS[SHEETS.ORDERS] = ['ID', 'Mã đơn', 'Mã đơn sàn', 'Mã vận chuyển đối tác', 'Ngày tạo',
-  'Ngày giao thành công', 'Đã giao', 'Huỷ/Hoàn', 'Giá trị sau giảm', 'Tỉnh', 'Cập nhật lúc'];
+  'Ngày giao thành công', 'Đã giao', 'Huỷ/Hoàn', 'Giá trị sau giảm', 'Tỉnh', 'Cập nhật lúc', 'Nguồn đơn'];
 
 var SETTINGS_DEFAULTS = [
   ['ID file form', '1yICSQ4bGpCQxMIJ_98PlD8ka6IRT-bt3xt6toQNGN_8', 'File Loyalty cũ chứa câu trả lời Google Form'],
@@ -93,7 +93,7 @@ function parseSettingsRows(rows) {
     dataStart: toDateOrNull_(byLabel['Ngày bắt đầu dữ liệu']),
     vndPerPoint: toNumber_(byLabel['Số tiền mỗi điểm']) || 100000,
     multipliers: multipliers,
-    waitDays: toNumber_(byLabel['Số ngày chờ sau giao']),
+    waitDays: isNaN(parseFloat(byLabel['Số ngày chờ sau giao'])) ? 15 : toNumber_(byLabel['Số ngày chờ sau giao']),
     customerSource: String(byLabel['Nguồn khách hàng'] || 'api').trim().toLowerCase() === 'sheet' ? 'sheet' : 'api',
   };
 }
@@ -111,7 +111,7 @@ function iso_(d) { return d ? d.toISOString() : ''; }
 /** Order -> cache row; dates stored as ISO text so the sheet's timezone never shifts them. */
 function orderToRow(o, updatedAt) {
   return [o.id, o.name, o.marketplaceCode, o.partnerTrackingCode, iso_(o.createdAt), iso_(o.deliveredAt),
-    o.delivered, o.voided, o.valueAfterDiscount, o.province, updatedAt || ''];
+    o.delivered, o.voided, o.valueAfterDiscount, o.province, updatedAt || '', o.source || ''];
 }
 
 function rowToOrder(r) {
@@ -119,6 +119,7 @@ function rowToOrder(r) {
     id: String(r[0]), name: String(r[1] || ''), marketplaceCode: String(r[2] || ''),
     partnerTrackingCode: String(r[3] || ''), createdAt: toDateOrNull_(r[4]), deliveredAt: toDateOrNull_(r[5]),
     delivered: bool_(r[6]), voided: bool_(r[7]), valueAfterDiscount: toNumber_(r[8]), province: String(r[9] || ''),
+    source: String(r[11] || ''),
   };
 }
 
@@ -236,9 +237,9 @@ function setupSheets() {
       sh.setFrozenRows(1);
     }
     if (name === SHEETS.SETTINGS) sh.getRange(2, 1, SETTINGS_DEFAULTS.length, 3).setValues(SETTINGS_DEFAULTS);
-    if (name === SHEETS.LEDGER) sh.getRange('C:C').setNumberFormat('@');
+    if (name === SHEETS.LEDGER) sh.getRange('A:C').setNumberFormat('@');
     if (name === SHEETS.REVIEW) sh.getRange('D:E').setNumberFormat('@');
-    if (name === SHEETS.ORDERS) sh.getRange('A:K').setNumberFormat('@');
+    if (name === SHEETS.ORDERS) sh.getRange('A:L').setNumberFormat('@');
     if (name === SHEETS.ORDERS || name === SHEETS.PENDING) sh.hideSheet();
     if (name === SHEETS.PENDING) sh.getRange('A:C').setNumberFormat('@');
   });
@@ -265,7 +266,9 @@ function appendLedger(entries) {
   if (!entries.length) return;
   var sh = sheet_(SHEETS.LEDGER);
   var rows = entries.map(ledgerToRow);
-  sh.getRange(sh.getLastRow() + 1, 1, rows.length, rows[0].length).setValues(rows);
+  var at = sh.getLastRow() + 1;
+  sh.getRange(at, 1, rows.length, 3).setNumberFormat('@');
+  sh.getRange(at, 1, rows.length, rows[0].length).setValues(rows);
 }
 
 /** Read all form answers from the old file (read-only). Header on row 2, data from row 3, columns A..F. */

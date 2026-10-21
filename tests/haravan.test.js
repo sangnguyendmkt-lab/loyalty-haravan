@@ -47,6 +47,7 @@ test('toOrder maps a delivered marketplace order', () => {
   assert.equal(o.voided, false);
   assert.equal(o.valueAfterDiscount, 254000);
   assert.equal(o.province, 'Hà Nội');
+  assert.equal(o.source, 'shopee');
 });
 
 test('toOrder handles string money and a missing fulfillment', () => {

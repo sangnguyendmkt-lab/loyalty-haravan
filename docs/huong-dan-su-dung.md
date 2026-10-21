@@ -6,7 +6,8 @@ File: **Loyalty Haravan** trên Google Drive. Mọi thao tác nằm trong menu *
 
 1. **Xuất file khách hàng mới nhất từ Haravan**
    - Vào Haravan → Khách hàng → Xuất file. Mở file đó, chọn tất cả (Ctrl + A), sao chép (Ctrl + C).
-   - Trong file Loyalty Haravan, mở sheet **Khách hàng Haravan**, bấm ô **A1**, dán (Ctrl + V). Phải dán **cả dòng tiêu đề**.
+   - Trong file Loyalty Haravan, mở sheet **Khách hàng Haravan**, nhấn **Ctrl + A** rồi **Delete** để **xoá sạch dữ liệu cũ**, bấm ô **A1**, dán (Ctrl + V). Phải dán **cả dòng tiêu đề**.
+   - Mỗi lần upload xong, nếu muốn chạy thêm đợt khác **trong cùng ngày**, phải xuất và dán lại file khách hàng mới (để có điểm vừa cộng).
    - Dùng dán (Ctrl + V), không dùng *Tệp → Nhập*, vì hệ thống ghi nhận thời điểm dán.
 2. Bấm **🎯 Loyalty → 🚀 Tạo file loyalty**.
    - Hệ thống tự tải đơn hàng mới từ Haravan, đối chiếu với câu trả lời Google Form và tính điểm.
@@ -28,6 +29,7 @@ File: **Loyalty Haravan** trên Google Drive. Mọi thao tác nằm trong menu *
 | Cần xem | SĐT sai | Khách điền sai số. Liên hệ khách nếu cần |
 | Cần xem | Không tìm thấy | Mã đơn không có trên Haravan: khai sai, đơn giả, hoặc đơn trước 08/2025 |
 | Cần xem | Đơn đã huỷ / hoàn / trả hàng | Không được tích điểm |
+| Cần xem | Không phải đơn Shopee/TikTok | Đơn website/Lazada… không thuộc chương trình |
 | Cần xem | Hạng không xác định | Hạng của khách trên Haravan không phải Silver/Gold/Platinum. Báo chủ shop |
 | Đang chờ | Chờ giao | Đơn chưa giao xong. Tự xét lại tuần sau |
 | Đang chờ | Chờ đủ 15 ngày | Đơn giao chưa đủ 15 ngày. Tự xét lại tuần sau |
