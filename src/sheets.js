@@ -304,7 +304,21 @@ function planPruneBlocks(rows, cutoff, firstRow) {
   return planUpdateBlocks(del, 1).reverse();
 }
 
-var REPORT_WIDTH = 1 + 3 * REPORT_CHANNELS.length;
+var REPORT_COLS = ['Số đơn', 'Trong đó đang chờ', 'Số khách', 'Điểm thưởng'];
+var REPORT_WIDTH = 1 + REPORT_COLS.length * REPORT_CHANNELS.length;
+
+/**
+ * "Cần kiểm tra" rows still waiting (Loại "Đang chờ": not delivered yet / waiting days) -> pending report
+ * entries {code, phone, channel, claimedAt, pending}. "Thời gian khai" is Vietnam time "yyyy-MM-dd HH:mm:ss".
+ */
+function reviewRowsToPendingEntries(reviewRows) {
+  return reviewRows.filter(function (r) { return String(r[5]) === 'Đang chờ' && normalizeCode(r[4]); }).map(function (r) {
+    var t = String(r[1] || '');
+    var claimedAt = /^\d{4}-\d{2}-\d{2} \d{2}:\d{2}/.test(t) ? new Date(t.replace(' ', 'T') + '+07:00') : toDateOrNull_(r[1]);
+    return { code: normalizeCode(r[4]), phone: normalizePhone(r[3]) || String(r[3] || ''), channel: String(r[2] || ''),
+      claimedAt: claimedAt, orderCreatedAt: null, points: 0, pending: true };
+  });
+}
 
 /**
  * Order-cache rows -> orders placed per channel and month (Haravan "Ngày tạo"), cancelled/returned left out:
@@ -324,45 +338,47 @@ function placedOrdersByMonth(orderRows, fromMonth, out) {
   return out;
 }
 
-/** How to read the report, written beside the tables (column I). Lines starting with "#" are headings. */
+/** How to read the report, written beside the tables (column K). Lines starting with "#" are headings. */
 var REPORT_GUIDE = [
   '# HƯỚNG DẪN ĐỌC BÁO CÁO',
   '',
   '# Chung',
-  '• Chỉ tính đơn ĐÃ TÍCH ĐIỂM (có trong sheet "Sổ đơn đã tích"). Đơn giao thành công nhưng khách không điền form thì không có ở đây.',
-  '• Số đơn = số đơn được tích điểm. Số khách = số SĐT khác nhau (1 khách nhiều đơn chỉ đếm 1). Điểm thưởng = tổng điểm đã cộng.',
+  '• Đếm mọi đơn KHÁCH ĐÃ ĐIỀN FORM và khớp đơn thật trên Haravan: đã tích điểm + đang chờ (chờ giao, chờ đủ ngày, đợt chưa ✅).',
+  '• Không đếm: mã không tìm thấy, SĐT sai, đơn huỷ/hoàn, đơn người khác đã tích, đơn không phải Shopee/TikTok.',
+  '• Số đơn = số đơn khách đã điền form. Trong đó đang chờ = phần chưa được tích điểm (sẽ tích khi đủ điều kiện, hoặc rơi ra nếu huỷ/hoàn).',
+  '• Số khách = số SĐT khác nhau (1 khách nhiều đơn chỉ đếm 1). Điểm thưởng = chỉ điểm ĐÃ cộng thật (đơn đang chờ chưa có điểm).',
   '• Cột Số khách KHÔNG cộng dọc theo tháng được: khách mua nhiều tháng được đếm ở mỗi tháng; dòng Tổng cộng đếm mỗi khách 1 lần.',
+  '• Đơn đang chờ lấy theo lần Tạo đợt gần nhất: form khách vừa điền sau lần đó sẽ vào báo cáo ở lần Tạo đợt sau.',
   '• Chỉ hiện từ tháng ghi ở Cài đặt "Báo cáo từ tháng". Đơn không xác định được ngày thì không đưa vào.',
-  '• Tự cập nhật sau mỗi lần ✅ Xác nhận đã upload; bấm 🎯 Loyalty → 📊 để cập nhật tay.',
+  '• Tự cập nhật sau mỗi lần ✅ Xác nhận đã upload; bấm 🎯 Loyalty → 📊 để cập nhật tay (bấm 🔄 trước để có trạng thái huỷ/hoàn mới nhất).',
   '',
   '# Bảng 1 – Theo tháng khách ĐẶT ĐƠN',
   '• Mỗi đơn được xếp vào tháng của ngày tạo đơn trên Haravan.',
-  '• Trả lời câu hỏi: "Đơn đặt trong tháng X, đến nay có bao nhiêu đơn đã được tích điểm?"',
-  '• Ví dụ: dòng 01/2026, Shopee – Số đơn 402 nghĩa là 402 đơn Shopee đặt trong tháng 1 đã được tích điểm, dù khách điền form ngay trong tháng 1 hay muộn hơn.',
-  '• Các tháng gần đây số còn thấp và sẽ tăng dần: đơn phải giao đủ 15 ngày mới được tích, và nhiều khách điền form muộn.',
+  '• Trả lời câu hỏi: "Đơn đặt trong tháng X, đến nay khách đã điền form bao nhiêu đơn?"',
+  '• Ví dụ: dòng 01/2026, Shopee – Số đơn 402: khách đã điền form cho 402 đơn Shopee đặt trong tháng 1, dù điền ngay trong tháng 1 hay muộn hơn.',
   '',
   '# Bảng 2 – Theo tháng khách ĐIỀN FORM',
   '• Mỗi đơn được xếp vào tháng khách điền form tích điểm.',
-  '• Trả lời câu hỏi: "Trong tháng X, khách đã điền form bao nhiêu đơn (và đã được tích điểm)?"',
-  '• Ví dụ: dòng 01/2026, Shopee – Số đơn 387 nghĩa là trong tháng 1 khách đã khai 387 đơn Shopee, gồm cả đơn đặt từ các tháng trước.',
+  '• Trả lời câu hỏi: "Trong tháng X, khách đã điền form bao nhiêu đơn?" → dùng để xem việc điền form có tăng trưởng theo tháng không.',
+  '• Ví dụ: dòng 01/2026, Shopee – Số đơn 387: trong tháng 1 khách đã khai 387 đơn Shopee, gồm cả đơn đặt từ các tháng trước.',
   '',
   '# So sánh 2 bảng',
-  '• Hai bảng đếm cùng những đơn đã tích điểm, chỉ khác cách xếp vào tháng.',
-  '• Tổng cộng bảng 1 thường thấp hơn bảng 2: bảng 1 bỏ các đơn ĐẶT trước "Báo cáo từ tháng" (và đơn không rõ ngày đặt), dù khách vẫn khai chúng trong kỳ báo cáo.',
+  '• Hai bảng đếm cùng những đơn, chỉ khác cách xếp vào tháng.',
+  '• Tổng cộng bảng 1 thường thấp hơn bảng 2: bảng 1 bỏ các đơn ĐẶT trước "Báo cáo từ tháng", dù khách vẫn khai chúng trong kỳ báo cáo.',
   '• Ở cùng một tháng: bảng 1 > bảng 2 → nhiều đơn của tháng đó được khai muộn sang tháng sau; bảng 2 > bảng 1 → trong tháng đó khách khai bù nhiều đơn cũ.',
   '',
   '# Bảng 3 – Tháng ĐẶT × tháng ĐIỀN FORM (mỗi kênh 1 bảng, phía dưới)',
-  '• Mỗi dòng là 1 tháng đặt đơn, mỗi cột là 1 tháng khách điền form; ô = số đơn đã tích điểm.',
+  '• Mỗi dòng là 1 tháng đặt đơn, mỗi cột là 1 tháng khách điền form; ô = số đơn khách đã điền form (gồm đang chờ).',
   '• Đọc theo dòng: dòng 01/2026 cho biết đơn đặt tháng 1 được khách khai vào tháng 1, tháng 2, tháng 3... bao nhiêu đơn.',
   '• Ví dụ Shopee: dòng 01/2026, cột 01/2026 = 333 → khai ngay trong tháng; cột 02/2026 = 49 → khai muộn sang tháng 2.',
   '• Cột Tổng (cuối dòng) = Số đơn của tháng đó ở bảng 1 (trừ vài đơn không rõ ngày điền form). Dòng Tổng cộng (cuối bảng) = số đơn khai trong từng tháng, chỉ tính đơn đặt từ "Báo cáo từ tháng".',
-  '• Tổng đơn phát sinh = số đơn của kênh tạo trong tháng trên Haravan, trừ đơn huỷ/hoàn (đã tích điểm hay chưa).',
+  '• Tổng đơn phát sinh = số đơn của kênh tạo trong tháng trên Haravan, trừ đơn huỷ/hoàn (khách điền form hay chưa).',
   '• Tỷ lệ điền form trong tháng = đơn khai ngay trong tháng đặt ÷ cột Tổng. Ví dụ 333 ÷ 402 = 82,84%.',
-  '• Tỷ lệ đã tích / đơn phát sinh = cột Tổng ÷ Tổng đơn phát sinh: bao nhiêu % đơn của tháng đã được khách tích điểm (tính cả khai muộn).',
+  '• Tỷ lệ điền form / đơn phát sinh = cột Tổng ÷ Tổng đơn phát sinh: bao nhiêu % đơn của tháng đã được khách điền form (tính cả khai muộn).',
   '• Ô trống = 0 đơn.',
 ];
 
-var CROSS_EXTRA = ['Tổng đơn phát sinh (trừ huỷ/hoàn)', 'Tỷ lệ điền form trong tháng', 'Tỷ lệ đã tích / đơn phát sinh'];
+var CROSS_EXTRA = ['Tổng đơn phát sinh (trừ huỷ/hoàn)', 'Tỷ lệ điền form trong tháng', 'Tỷ lệ điền form / đơn phát sinh'];
 
 /** buildReport() output -> rows for the "Báo cáo" sheet: two tables (by order month, by form month). */
 function reportToRows(report) {
@@ -371,7 +387,7 @@ function reportToRows(report) {
   function label(m) { return m === UNKNOWN_MONTH ? m : m.slice(5, 7) + '/' + m.slice(0, 4); }
   function line(first, byCh) {
     var r = [first];
-    REPORT_CHANNELS.forEach(function (ch) { r.push(byCh[ch].orders, byCh[ch].customers, byCh[ch].points); });
+    REPORT_CHANNELS.forEach(function (ch) { r.push(byCh[ch].orders, byCh[ch].pending, byCh[ch].customers, byCh[ch].points); });
     return r;
   }
   [[report.byOrder, 'Theo tháng khách ĐẶT ĐƠN (ngày tạo đơn trên Haravan)'],
@@ -379,7 +395,7 @@ function reportToRows(report) {
     if (k) rows.push(pad([]));
     rows.push(pad([t[1]]));
     var h1 = ['Tháng'], h2 = [''];
-    REPORT_CHANNELS.forEach(function (ch) { h1.push(ch, '', ''); h2.push('Số đơn', 'Số khách', 'Điểm thưởng'); });
+    REPORT_CHANNELS.forEach(function (ch) { h1.push(ch, '', '', ''); h2.push.apply(h2, REPORT_COLS); });
     rows.push(h1, h2);
     t[0].months.forEach(function (m) { rows.push(line(label(m), t[0].cells[m])); });
     rows.push(line('Tổng cộng', t[0].total));
@@ -390,7 +406,7 @@ function reportToRows(report) {
     while (rows.length < REPORT_GUIDE.length + 1) rows.push(pad([]));
     REPORT_CHANNELS.forEach(function (ch) {
       rows.push(pad([]));
-      rows.push([ch + ': đơn ĐẶT trong tháng (dòng) × tháng khách ĐIỀN FORM (cột) – số đơn đã tích điểm']);
+      rows.push([ch + ': đơn ĐẶT trong tháng (dòng) × tháng khách ĐIỀN FORM (cột) – số đơn khách đã điền form (gồm đang chờ)']);
       rows.push(['Tháng đặt ↓ / điền →'].concat(x.claimMonths.map(label), ['Tổng'].concat(CROSS_EXTRA)));
       var placedByMonth = (report.placed || {})[ch] || {};
       function ratio(a, b) { return b ? a / b : ''; }
@@ -547,9 +563,28 @@ function writeReport() {
   var settings = readSettings();
   var ledger = readLedger();
   var orderDates = backfillLedgerOrderDates_(ledger);
-  var report = buildReport(ledger, orderDates, settings.reportFromMonth);
-  report.placed = {};
-  forEachOrderChunk_(function (chunk) { placedOrdersByMonth(chunk, settings.reportFromMonth, report.placed); });
+  // Claimed but not credited yet: still waiting in "Cần kiểm tra", or in the batch not confirmed yet.
+  var credited = new Set(ledger.map(function (e) { return e.code; }));
+  var pending = readPendingClaims_().filter(function (e) {
+    if (!e.code || credited.has(e.code)) return false;
+    credited.add(e.code);
+    return true;
+  });
+  var waitingCodes = new Set(pending.filter(function (e) { return !e.orderCreatedAt; }).map(function (e) { return e.code; }));
+  var placed = {};
+  forEachOrderChunk_(function (chunk) {
+    placedOrdersByMonth(chunk, settings.reportFromMonth, placed);
+    if (!waitingCodes.size) return;
+    filterOrderRowsByCodes(chunk, waitingCodes).forEach(function (r) {
+      var o = rowToOrder(r);
+      [o.name, o.marketplaceCode, o.partnerTrackingCode].forEach(function (c) {
+        c = normalizeCode(c);
+        if (c && waitingCodes.has(c) && o.createdAt) orderDates.set(c, o.createdAt);
+      });
+    });
+  });
+  var report = buildReport(ledger.concat(pending), orderDates, settings.reportFromMonth);
+  report.placed = placed;
   var rows = reportToRows(report);
   var sh = sheet_(SHEETS.REPORT);
   sh.getRange(1, 1, sh.getMaxRows(), sh.getMaxColumns()).breakApart();
@@ -579,7 +614,7 @@ function writeReport() {
       sh.getRange(at, 1, 2, REPORT_WIDTH).setFontWeight('bold').setHorizontalAlignment('center').setBackground('#dbe5f1');
       var colors = { Shopee: '#ee4d2d', Tiktok: '#111111' };
       REPORT_CHANNELS.forEach(function (ch, c) {
-        sh.getRange(at, 2 + 3 * c, 1, 3).merge().setBackground(colors[ch] || '#666666').setFontColor('#ffffff');
+        sh.getRange(at, 2 + REPORT_COLS.length * c, 1, REPORT_COLS.length).merge().setBackground(colors[ch] || '#666666').setFontColor('#ffffff');
       });
     } else if (r[0] === 'Tổng cộng') {
       sh.getRange(at, 1, 1, tableWidth).setFontWeight('bold').setBackground('#c9daf8');
@@ -623,6 +658,25 @@ function backfillLedgerOrderDates_(ledger) {
   });
   if (changed) range.setValues(dates);
   return found;
+}
+
+/** Pending report entries: "Cần kiểm tra" rows still waiting, plus the open batch's orders (not confirmed yet). */
+function readPendingClaims_() {
+  var out = [];
+  var r = sheet_(SHEETS.REVIEW);
+  if (r.getLastRow() > 1) {
+    out = reviewRowsToPendingEntries(r.getRange(2, 1, r.getLastRow() - 1, HEADERS[SHEETS.REVIEW].length).getValues());
+  }
+  var p = sheet_(SHEETS.PENDING);
+  if (p.getLastRow() > 1) {
+    p.getRange(2, 1, p.getLastRow() - 1, HEADERS[SHEETS.PENDING].length).getValues().forEach(function (row) {
+      if (String(row[0]).trim() === '') return;
+      var e = rowToLedger(row);
+      e.pending = true;
+      out.push(e);
+    });
+  }
+  return out;
 }
 
 /** Calls fn with the order cache rows, 20,000 at a time. */
@@ -669,6 +723,7 @@ if (typeof module !== 'undefined') module.exports = {
   reportToRows: reportToRows,
   REPORT_GUIDE: REPORT_GUIDE,
   placedOrdersByMonth: placedOrdersByMonth,
+  reviewRowsToPendingEntries: reviewRowsToPendingEntries,
   creditsToLedgerRows: creditsToLedgerRows,
   reviewToRows: reviewToRows,
   claimKey: claimKey,

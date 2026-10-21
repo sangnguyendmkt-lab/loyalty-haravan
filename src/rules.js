@@ -380,11 +380,13 @@ function vnMonthKey(d) {
 }
 
 /**
- * Credited orders per month and channel, twice: by the month the order was placed (Haravan "Ngày tạo")
+ * Claimed orders per month and channel: credited ledger entries plus entries marked `pending` (matched a real
+ * order but not credited yet: waiting for delivery / the waiting days, or in an unconfirmed batch). Pending
+ * entries count as orders and customers, never as points. Twice: by the month the order was placed (Haravan "Ngày tạo")
  * and by the month the customer filled the form. orderDateByCode fills ledger entries that have no order
  * date (orders migrated from the old file). Orders without a usable date, or in a month before fromMonth
  * ("yyyy-MM"), are left out of that table and its total. Each table: {months: [...sorted, UNKNOWN_MONTH last if any],
- * cells: {month: {channel: {orders, customers, points}}}, total: {channel: {...}}}.
+ * cells: {month: {channel: {orders, pending, customers, points}}}, total: {channel: {...}}}.
  * cross: {orderMonths, claimMonths, cells: {channel: {orderMonth: {claimMonth: orders}}}}.
  */
 function buildReport(ledger, orderDateByCode, fromMonth) {
@@ -393,7 +395,7 @@ function buildReport(ledger, orderDateByCode, fromMonth) {
     var acc = {}, total = {};
     function cell(store, key, ch) {
       store[key] = store[key] || {};
-      store[key][ch] = store[key][ch] || { orders: 0, phones: new Set(), points: 0 };
+      store[key][ch] = store[key][ch] || { orders: 0, pending: 0, phones: new Set(), points: 0 };
       return store[key][ch];
     }
     ledger.forEach(function (e) {
@@ -403,15 +405,16 @@ function buildReport(ledger, orderDateByCode, fromMonth) {
       if (month === UNKNOWN_MONTH || (fromMonth && month < fromMonth)) return;
       [cell(acc, month, ch), cell(total, 'all', ch)].forEach(function (c) {
         c.orders += 1;
+        if (e.pending) c.pending += 1;
         c.phones.add(e.phone);
-        c.points += Number(e.points) || 0;
+        c.points += e.pending ? 0 : Number(e.points) || 0;
       });
     });
     function plain(byCh) {
       var out = {};
       REPORT_CHANNELS.forEach(function (ch) {
         var c = (byCh || {})[ch];
-        out[ch] = { orders: c ? c.orders : 0, customers: c ? c.phones.size : 0, points: c ? c.points : 0 };
+        out[ch] = { orders: c ? c.orders : 0, pending: c ? c.pending : 0, customers: c ? c.phones.size : 0, points: c ? c.points : 0 };
       });
       return out;
     }

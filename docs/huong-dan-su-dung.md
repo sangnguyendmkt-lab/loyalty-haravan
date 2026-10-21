@@ -68,10 +68,10 @@ Khách điền **nhiều mã trong 1 ô** (xuống dòng, dấu phẩy, "/", "v�
 - **⚙️ Cài đặt kết nối Haravan**: dán token mới khi đổi token.
 - **🔒 Bật phân quyền**: chạy một lần sau khi chia sẻ file cho nhân viên.
 - **📊 Cập nhật báo cáo**: báo cáo tự cập nhật sau mỗi lần ✅. Nút này dùng khi cần cập nhật tay.
-- **Sheet Báo cáo** (chỉ đơn đã tích điểm) có 2 bảng, mỗi tháng một dòng, cột Shopee | Tiktok (Số đơn / Số khách / Điểm thưởng):
+- **Sheet Báo cáo** đếm mọi đơn khách đã điền form và khớp đơn thật (đã tích điểm + đang chờ: chờ giao, chờ đủ ngày, đợt chưa ✅). Có 2 bảng, mỗi tháng một dòng, cột Shopee | Tiktok (Số đơn / Trong đó đang chờ / Số khách / Điểm thưởng — điểm chỉ tính điểm đã cộng):
   - **Theo tháng khách đặt đơn** (ngày tạo đơn trên Haravan). Đơn không tra được ngày đặt (quá 365 ngày) không được đưa vào.
   - **Theo tháng khách điền form tích điểm.**
   - Chỉ hiện từ tháng ghi ở Cài đặt **Báo cáo từ tháng** (mặc định 01/2026); đơn đặt trước tháng đó không tính ở bảng 1, nên tổng bảng 1 có thể thấp hơn bảng 2.
-  - Hướng dẫn đọc báo cáo được ghi ngay trong sheet, cột I.
-  - Bên dưới phần hướng dẫn có thêm 2 bảng ma trận (Shopee, TikTok): dòng = tháng đặt đơn, cột = tháng khách điền form, ô = số đơn đã tích điểm.
-  - Sau cột Tổng của bảng ma trận có thêm: Tổng đơn phát sinh (đơn tạo trong tháng trên Haravan, trừ huỷ/hoàn), Tỷ lệ điền form trong tháng (khai ngay trong tháng ÷ Tổng), Tỷ lệ đã tích / đơn phát sinh (Tổng ÷ Tổng đơn phát sinh).
+  - Hướng dẫn đọc báo cáo được ghi ngay trong sheet, cột K.
+  - Bên dưới phần hướng dẫn có thêm 2 bảng ma trận (Shopee, TikTok): dòng = tháng đặt đơn, cột = tháng khách điền form, ô = số đơn khách đã điền form (gồm đang chờ).
+  - Sau cột Tổng của bảng ma trận có thêm: Tổng đơn phát sinh (đơn tạo trong tháng trên Haravan, trừ huỷ/hoàn), Tỷ lệ điền form trong tháng (khai ngay trong tháng ÷ Tổng), Tỷ lệ điền form / đơn phát sinh (Tổng ÷ Tổng đơn phát sinh).
