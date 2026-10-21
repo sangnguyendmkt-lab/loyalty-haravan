@@ -595,6 +595,11 @@ function writeReport() {
   rows.forEach(function (r, i) { if (/^Tháng đặt ↓/.test(r[0])) sh.getRange(i + 1, 1, 1, width).setNumberFormat('@'); });
   sh.getRange(1, 1, rows.length, width).setValues(rows);
   sh.getRange(1, 2, rows.length, width - 1).setNumberFormat('#,##0').setHorizontalAlignment('right');
+  // The number format above turns "01/2026" header text back into dates: set those rows as text again.
+  rows.forEach(function (r, i) {
+    if (/^Tháng đặt ↓/.test(r[0])) sh.getRange(i + 1, 1, 1, width).setNumberFormat('@').setValues([r]);
+  });
+  for (var c = 2; c <= width; c++) if (sh.getColumnWidth(c) < 70) sh.setColumnWidth(c, 70);
   var tableWidth = REPORT_WIDTH;
   rows.forEach(function (r, i) {
     var at = i + 1;
