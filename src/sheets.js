@@ -306,6 +306,34 @@ function planPruneBlocks(rows, cutoff, firstRow) {
 
 var REPORT_WIDTH = 1 + 3 * REPORT_CHANNELS.length;
 
+/** How to read the report, written beside the tables (column I). Lines starting with "#" are headings. */
+var REPORT_GUIDE = [
+  '# HƯỚNG DẪN ĐỌC BÁO CÁO',
+  '',
+  '# Chung',
+  '• Chỉ tính đơn ĐÃ TÍCH ĐIỂM (có trong sheet "Sổ đơn đã tích"). Đơn giao thành công nhưng khách không điền form thì không có ở đây.',
+  '• Số đơn = số đơn được tích điểm. Số khách = số SĐT khác nhau (1 khách nhiều đơn chỉ đếm 1). Điểm thưởng = tổng điểm đã cộng.',
+  '• Cột Số khách KHÔNG cộng dọc theo tháng được: khách mua nhiều tháng được đếm ở mỗi tháng; dòng Tổng cộng đếm mỗi khách 1 lần.',
+  '• Chỉ hiện từ tháng ghi ở Cài đặt "Báo cáo từ tháng". Đơn không xác định được ngày thì không đưa vào.',
+  '• Tự cập nhật sau mỗi lần ✅ Xác nhận đã upload; bấm 🎯 Loyalty → 📊 để cập nhật tay.',
+  '',
+  '# Bảng 1 – Theo tháng khách ĐẶT ĐƠN',
+  '• Mỗi đơn được xếp vào tháng của ngày tạo đơn trên Haravan.',
+  '• Trả lời câu hỏi: "Đơn đặt trong tháng X, đến nay có bao nhiêu đơn đã được tích điểm?"',
+  '• Ví dụ: dòng 01/2026, Shopee – Số đơn 402 nghĩa là 402 đơn Shopee đặt trong tháng 1 đã được tích điểm, dù khách điền form ngay trong tháng 1 hay muộn hơn.',
+  '• Các tháng gần đây số còn thấp và sẽ tăng dần: đơn phải giao đủ 15 ngày mới được tích, và nhiều khách điền form muộn.',
+  '',
+  '# Bảng 2 – Theo tháng khách ĐIỀN FORM',
+  '• Mỗi đơn được xếp vào tháng khách điền form tích điểm.',
+  '• Trả lời câu hỏi: "Trong tháng X, khách đã điền form bao nhiêu đơn (và đã được tích điểm)?"',
+  '• Ví dụ: dòng 01/2026, Shopee – Số đơn 387 nghĩa là trong tháng 1 khách đã khai 387 đơn Shopee, gồm cả đơn đặt từ các tháng trước.',
+  '',
+  '# So sánh 2 bảng',
+  '• Hai bảng đếm cùng những đơn đã tích điểm, chỉ khác cách xếp vào tháng.',
+  '• Tổng cộng bảng 1 thường thấp hơn bảng 2: bảng 1 bỏ các đơn ĐẶT trước "Báo cáo từ tháng" (và đơn không rõ ngày đặt), dù khách vẫn khai chúng trong kỳ báo cáo.',
+  '• Ở cùng một tháng: bảng 1 > bảng 2 → nhiều đơn của tháng đó được khai muộn sang tháng sau; bảng 2 > bảng 1 → trong tháng đó khách khai bù nhiều đơn cũ.',
+];
+
 /** buildReport() output -> rows for the "Báo cáo" sheet: two tables (by order month, by form month). */
 function reportToRows(report) {
   var rows = [];
@@ -467,14 +495,28 @@ function writeReport() {
   sh.getRange(1, 1, sh.getMaxRows(), sh.getMaxColumns()).breakApart();
   sh.clear();
   sh.getRange(1, 1, rows.length, REPORT_WIDTH).setValues(rows);
+  sh.getRange(1, 2, rows.length, REPORT_WIDTH - 1).setNumberFormat('#,##0').setHorizontalAlignment('right');
   rows.forEach(function (r, i) {
-    if (r[0] === 'Tháng' || r[0] === 'Tổng cộng' || /^Theo tháng/.test(r[0])) sh.getRange(i + 1, 1, 1, REPORT_WIDTH).setFontWeight('bold');
-    if (r[0] === 'Tháng') {
-      for (var c = 0; c < REPORT_CHANNELS.length; c++) sh.getRange(i + 1, 2 + 3 * c, 1, 3).merge().setHorizontalAlignment('center');
-      sh.getRange(i + 2, 1, 1, REPORT_WIDTH).setFontWeight('bold');
+    var at = i + 1;
+    if (/^Theo tháng/.test(r[0])) {
+      sh.getRange(at, 1, 1, REPORT_WIDTH).merge().setBackground('#1f3864').setFontColor('#ffffff').setFontWeight('bold');
+    } else if (r[0] === 'Tháng') {
+      sh.getRange(at, 1, 2, 1).merge().setVerticalAlignment('middle');
+      sh.getRange(at, 1, 2, REPORT_WIDTH).setFontWeight('bold').setHorizontalAlignment('center').setBackground('#dbe5f1');
+      var colors = { Shopee: '#ee4d2d', Tiktok: '#111111' };
+      REPORT_CHANNELS.forEach(function (ch, c) {
+        sh.getRange(at, 2 + 3 * c, 1, 3).merge().setBackground(colors[ch] || '#666666').setFontColor('#ffffff');
+      });
+    } else if (r[0] === 'Tổng cộng') {
+      sh.getRange(at, 1, 1, REPORT_WIDTH).setFontWeight('bold').setBackground('#c9daf8');
     }
   });
-  sh.getRange(1, 2, rows.length, REPORT_WIDTH - 1).setNumberFormat('#,##0');
+  sh.getRange(1, 1, rows.length, 1).setHorizontalAlignment('center');
+  // Guide beside the tables; no wrap so the table rows keep their height (the text runs over empty columns).
+  var guideCol = REPORT_WIDTH + 2;
+  sh.getRange(1, guideCol, REPORT_GUIDE.length, 1)
+    .setValues(REPORT_GUIDE.map(function (t) { return [t.replace(/^# /, '')]; })).setWrap(false);
+  REPORT_GUIDE.forEach(function (t, i) { if (/^# /.test(t)) sh.getRange(i + 1, guideCol).setFontWeight('bold').setFontColor('#1f3864'); });
 }
 
 /**

@@ -382,8 +382,8 @@ function vnMonthKey(d) {
 /**
  * Credited orders per month and channel, twice: by the month the order was placed (Haravan "Ngày tạo")
  * and by the month the customer filled the form. orderDateByCode fills ledger entries that have no order
- * date (orders migrated from the old file). Months before fromMonth ("yyyy-MM") are left out of that table
- * and its total; "Không rõ" is kept. Each table: {months: [...sorted, UNKNOWN_MONTH last if any],
+ * date (orders migrated from the old file). Orders without a usable date, or in a month before fromMonth
+ * ("yyyy-MM"), are left out of that table and its total. Each table: {months: [...sorted, UNKNOWN_MONTH last if any],
  * cells: {month: {channel: {orders, customers, points}}}, total: {channel: {...}}}.
  */
 function buildReport(ledger, orderDateByCode, fromMonth) {
@@ -399,7 +399,7 @@ function buildReport(ledger, orderDateByCode, fromMonth) {
       var ch = REPORT_CHANNELS.filter(function (c) { return c.toLowerCase() === String(e.channel || '').trim().toLowerCase(); })[0];
       if (!ch) return;
       var month = vnMonthKey(dateOf(e));
-      if (fromMonth && month !== UNKNOWN_MONTH && month < fromMonth) return;
+      if (month === UNKNOWN_MONTH || (fromMonth && month < fromMonth)) return;
       [cell(acc, month, ch), cell(total, 'all', ch)].forEach(function (c) {
         c.orders += 1;
         c.phones.add(e.phone);

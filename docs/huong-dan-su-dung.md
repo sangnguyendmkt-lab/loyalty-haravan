@@ -69,6 +69,7 @@ Khách điền **nhiều mã trong 1 ô** (xuống dòng, dấu phẩy, "/", "v�
 - **🔒 Bật phân quyền**: chạy một lần sau khi chia sẻ file cho nhân viên.
 - **📊 Cập nhật báo cáo**: báo cáo tự cập nhật sau mỗi lần ✅. Nút này dùng khi cần cập nhật tay.
 - **Sheet Báo cáo** (chỉ đơn đã tích điểm) có 2 bảng, mỗi tháng một dòng, cột Shopee | Tiktok (Số đơn / Số khách / Điểm thưởng):
-  - **Theo tháng khách đặt đơn** (ngày tạo đơn trên Haravan). Đơn cũ không tra được ngày (quá 365 ngày) nằm ở dòng "Không rõ".
+  - **Theo tháng khách đặt đơn** (ngày tạo đơn trên Haravan). Đơn không tra được ngày đặt (quá 365 ngày) không được đưa vào.
   - **Theo tháng khách điền form tích điểm.**
   - Chỉ hiện từ tháng ghi ở Cài đặt **Báo cáo từ tháng** (mặc định 01/2026); đơn đặt trước tháng đó không tính ở bảng 1, nên tổng bảng 1 có thể thấp hơn bảng 2.
+  - Hướng dẫn đọc báo cáo được ghi ngay trong sheet, cột I.

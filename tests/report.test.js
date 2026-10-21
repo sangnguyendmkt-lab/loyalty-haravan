@@ -21,13 +21,14 @@ test('buildReport counts orders, distinct customers and points per month and cha
   assert.deepEqual(r.byClaim.total, r.byOrder.total);
 });
 
-test('missing order dates come from the Haravan lookup, else "Không rõ" (listed last)', () => {
+test('missing order dates come from the Haravan lookup, else the order is left out', () => {
   const r = buildReport([
     entry('260110ABCDEFGH', '0901', 'Shopee', '2026-02-03T03:00:00Z', null, 1),
     entry('583927961666356425', '0902', 'Tiktok', '2026-02-03T03:00:00Z', null, 2),
   ], new Map([['260110ABCDEFGH', new Date('2025-12-31T18:00:00Z')]])); // 01:00 on 1 Jan VN
-  assert.deepEqual(r.byOrder.months, ['2026-01', UNKNOWN_MONTH]);
-  assert.equal(r.byOrder.cells[UNKNOWN_MONTH].Tiktok.orders, 1);
+  assert.deepEqual(r.byOrder.months, ['2026-01']);
+  assert.equal(r.byOrder.total.Tiktok.orders, 0);
+  assert.equal(r.byClaim.total.Tiktok.orders, 1);
 });
 
 test('total customers are distinct over the whole period', () => {
@@ -38,13 +39,13 @@ test('total customers are distinct over the whole period', () => {
   assert.deepEqual(r.byClaim.total.Shopee, { orders: 2, customers: 1, points: 2 });
 });
 
-test('buildReport leaves out months before the report start month, keeps "Không rõ"', () => {
+test('buildReport leaves out months before the report start month and unknown dates', () => {
   const r = buildReport([
     entry('A', '0901', 'Shopee', '2026-01-05T03:00:00Z', '2025-12-20T03:00:00Z', 1),
     entry('B', '0902', 'Shopee', '2026-01-05T03:00:00Z', '2026-01-02T03:00:00Z', 2),
     entry('C', '0903', 'Shopee', '2026-01-05T03:00:00Z', null, 4),
   ], new Map(), '2026-01');
-  assert.deepEqual(r.byOrder.months, ['2026-01', UNKNOWN_MONTH]);
-  assert.deepEqual(r.byOrder.total.Shopee, { orders: 2, customers: 2, points: 6 });
+  assert.deepEqual(r.byOrder.months, ['2026-01']);
+  assert.deepEqual(r.byOrder.total.Shopee, { orders: 1, customers: 1, points: 2 });
   assert.deepEqual(r.byClaim.total.Shopee, { orders: 3, customers: 3, points: 7 });
 });
