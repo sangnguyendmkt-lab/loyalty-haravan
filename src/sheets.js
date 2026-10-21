@@ -13,12 +13,14 @@ var SHEETS = {
   REPORT: 'Báo cáo',
   CUSTOMERS: 'Khách hàng Haravan',
   ORDERS: 'Đơn Haravan',
+  PENDING: 'Đợt - chi tiết',
 };
 
 var HEADERS = {};
 HEADERS[SHEETS.SETTINGS] = ['Mục', 'Giá trị', 'Ghi chú'];
 HEADERS[SHEETS.LEDGER] = ['Mã đơn', 'ID đơn Haravan', 'SĐT', 'Kênh', 'Thời gian khai', 'Ngày tạo đơn',
   'Giá trị sau giảm', 'Hạng', 'Hệ số', 'Điểm', 'Mã đợt', 'Nguồn'];
+HEADERS[SHEETS.PENDING] = HEADERS[SHEETS.LEDGER];
 HEADERS[SHEETS.HISTORY] = ['Mã đợt', 'Tạo lúc', 'Người tạo', 'Số khách', 'Số đơn', 'Tổng điểm', 'Trạng thái',
   'Người xác nhận/huỷ', 'Lúc xác nhận/huỷ', 'SĐT lỗi', 'File'];
 HEADERS[SHEETS.REVIEW] = ['Dòng form', 'Thời gian khai', 'Kênh', 'SĐT', 'Mã đơn', 'Loại', 'Lý do',
@@ -120,6 +122,46 @@ function rowToOrder(r) {
   };
 }
 
+/** Credits of a batch -> ledger rows (values only). */
+function creditsToLedgerRows(credits, batchId) {
+  return credits.map(function (c) {
+    return ledgerToRow({
+      code: normalizeCode(c.submission.codeRaw), orderId: c.order.id, phone: c.phone, channel: c.submission.channel,
+      claimedAt: parseFormTimestamp(c.submission.timestamp), orderCreatedAt: c.order.createdAt,
+      value: c.order.valueAfterDiscount, tier: c.tier, multiplier: c.multiplier, points: c.points,
+      batchId: batchId, source: 'Hệ thống',
+    });
+  });
+}
+
+/** Review items -> "Cần kiểm tra" rows, keeping "Lần đầu thấy" and "Ghi chú" from the previous run (key: form row + code). */
+function reviewToRows(review, previousRows, todayKey) {
+  var prev = {};
+  previousRows.forEach(function (r) { prev[r[0] + '|' + normalizeCode(r[4])] = r; });
+  return review.slice().sort(function (a, b) {
+    if (a.kind !== b.kind) return a.kind === 'warn' ? -1 : 1;
+    return a.submission.row - b.submission.row;
+  }).map(function (it) {
+    var s = it.submission;
+    var code = normalizeCode(s.codeRaw);
+    var old = prev[s.row + '|' + code];
+    var ts = parseFormTimestamp(s.timestamp);
+    return [s.row, ts ? formatIsoVN(ts).slice(0, 19).replace('T', ' ') : String(s.timestamp || ''), s.channel,
+      String(s.phoneRaw === null || s.phoneRaw === undefined ? '' : s.phoneRaw), code,
+      it.kind === 'warn' ? 'Cần xem' : 'Đang chờ', it.reason, old ? old[7] : todayKey, old ? old[8] : ''];
+  });
+}
+
+function batchSummaryRows(meta, exportRows, credits, review) {
+  var warn = review.filter(function (r) { return r.kind === 'warn'; }).length;
+  return [
+    ['Mã đợt', meta.batchId], ['Tạo lúc', meta.createdAt], ['Người tạo', meta.createdBy],
+    ['Số khách / số đơn được tích', exportRows.length + ' khách / ' + credits.length + ' đơn'],
+    ['Tổng điểm cộng thêm', credits.reduce(function (s, c) { return s + c.points; }, 0)],
+    ['Cần kiểm tra / đang chờ', warn + ' / ' + (review.length - warn)],
+  ];
+}
+
 /**
  * Old file "Edit" rows (columns A..Q) -> ledger rows for every Done order, first occurrence per code.
  * The old sheet's processing date 08/01/2025 was a typo for 08/01/2026 (confirmed by the owner).
@@ -176,7 +218,9 @@ function setupSheets() {
     if (name === SHEETS.SETTINGS) sh.getRange(2, 1, SETTINGS_DEFAULTS.length, 3).setValues(SETTINGS_DEFAULTS);
     if (name === SHEETS.LEDGER) sh.getRange('C:C').setNumberFormat('@');
     if (name === SHEETS.REVIEW) sh.getRange('D:E').setNumberFormat('@');
-    if (name === SHEETS.ORDERS) sh.hideSheet();
+    if (name === SHEETS.ORDERS) sh.getRange('A:K').setNumberFormat('@');
+    if (name === SHEETS.ORDERS || name === SHEETS.PENDING) sh.hideSheet();
+    if (name === SHEETS.PENDING) sh.getRange('A:C').setNumberFormat('@');
   });
   var blank = ss.getSheetByName('Sheet1') || ss.getSheetByName('Trang tính1');
   if (blank && blank.getLastRow() === 0 && ss.getSheets().length > 1) ss.deleteSheet(blank);
@@ -241,5 +285,8 @@ if (typeof module !== 'undefined') module.exports = {
   rowToSubmission: rowToSubmission,
   editRowsToLedgerRows: editRowsToLedgerRows,
   orderToRow: orderToRow,
+  creditsToLedgerRows: creditsToLedgerRows,
+  reviewToRows: reviewToRows,
+  batchSummaryRows: batchSummaryRows,
   rowToOrder: rowToOrder,
 };

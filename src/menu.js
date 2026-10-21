@@ -19,3 +19,10 @@ function onOpen() {
       .addItem('🔒 Bật phân quyền', 'protectSheets'))
     .addToUi();
 }
+
+/** Simple trigger: remember when the customer export was pasted, so a stale export can't be used. */
+function onEdit(e) {
+  if (e && e.range && e.range.getSheet().getName() === SHEETS.CUSTOMERS) {
+    PropertiesService.getScriptProperties().setProperty(CUSTOMERS_UPDATED_KEY, new Date().toISOString());
+  }
+}

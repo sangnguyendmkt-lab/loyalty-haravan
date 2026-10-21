@@ -58,6 +58,9 @@ function formatIsoVN(d) {
     '+07:00';
 }
 
+/** Vietnam calendar day "yyyy-MM-dd" of a Date. */
+function vnDayKey(d) { return formatIsoVN(d).slice(0, 10); }
+
 var REASONS = {
   TAKEN_BY_OTHER: 'Đơn đã được người khác tích',
   PHONE_INVALID: 'SĐT sai',
@@ -240,6 +243,7 @@ function buildReport(ledger, year) {
 }
 
 if (typeof module !== 'undefined') module.exports = {
+  vnDayKey: vnDayKey,
   REPORT_CHANNELS: REPORT_CHANNELS,
   buildReport: buildReport,
   EXPORT_HEADERS: EXPORT_HEADERS,
