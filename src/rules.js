@@ -385,6 +385,7 @@ function vnMonthKey(d) {
  * date (orders migrated from the old file). Orders without a usable date, or in a month before fromMonth
  * ("yyyy-MM"), are left out of that table and its total. Each table: {months: [...sorted, UNKNOWN_MONTH last if any],
  * cells: {month: {channel: {orders, customers, points}}}, total: {channel: {...}}}.
+ * cross: {orderMonths, claimMonths, cells: {channel: {orderMonth: {claimMonth: orders}}}}.
  */
 function buildReport(ledger, orderDateByCode, fromMonth) {
   orderDateByCode = orderDateByCode || new Map();
@@ -420,9 +421,26 @@ function buildReport(ledger, orderDateByCode, fromMonth) {
     months.forEach(function (m) { cells[m] = plain(acc[m]); });
     return { months: months, cells: cells, total: plain(total.all) };
   }
+  function orderDate(e) { return e.orderCreatedAt || orderDateByCode.get(normalizeCode(e.code)) || null; }
+  // Orders per channel: order month (rows) x form month (columns), same order-month filter as byOrder.
+  function cross() {
+    var cells = {}, orderMonths = {}, claimMonths = {};
+    REPORT_CHANNELS.forEach(function (ch) { cells[ch] = {}; });
+    ledger.forEach(function (e) {
+      var ch = REPORT_CHANNELS.filter(function (c) { return c.toLowerCase() === String(e.channel || '').trim().toLowerCase(); })[0];
+      if (!ch) return;
+      var om = vnMonthKey(orderDate(e)), cm = vnMonthKey(e.claimedAt);
+      if (om === UNKNOWN_MONTH || cm === UNKNOWN_MONTH || (fromMonth && om < fromMonth)) return;
+      orderMonths[om] = claimMonths[cm] = true;
+      cells[ch][om] = cells[ch][om] || {};
+      cells[ch][om][cm] = (cells[ch][om][cm] || 0) + 1;
+    });
+    return { orderMonths: Object.keys(orderMonths).sort(), claimMonths: Object.keys(claimMonths).sort(), cells: cells };
+  }
   return {
-    byOrder: table(function (e) { return e.orderCreatedAt || orderDateByCode.get(normalizeCode(e.code)) || null; }),
+    byOrder: table(orderDate),
     byClaim: table(function (e) { return e.claimedAt; }),
+    cross: cross(),
   };
 }
 

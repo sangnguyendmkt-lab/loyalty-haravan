@@ -332,6 +332,13 @@ var REPORT_GUIDE = [
   '• Hai bảng đếm cùng những đơn đã tích điểm, chỉ khác cách xếp vào tháng.',
   '• Tổng cộng bảng 1 thường thấp hơn bảng 2: bảng 1 bỏ các đơn ĐẶT trước "Báo cáo từ tháng" (và đơn không rõ ngày đặt), dù khách vẫn khai chúng trong kỳ báo cáo.',
   '• Ở cùng một tháng: bảng 1 > bảng 2 → nhiều đơn của tháng đó được khai muộn sang tháng sau; bảng 2 > bảng 1 → trong tháng đó khách khai bù nhiều đơn cũ.',
+  '',
+  '# Bảng 3 – Tháng ĐẶT × tháng ĐIỀN FORM (mỗi kênh 1 bảng, phía dưới)',
+  '• Mỗi dòng là 1 tháng đặt đơn, mỗi cột là 1 tháng khách điền form; ô = số đơn đã tích điểm.',
+  '• Đọc theo dòng: dòng 01/2026 cho biết đơn đặt tháng 1 được khách khai vào tháng 1, tháng 2, tháng 3... bao nhiêu đơn.',
+  '• Ví dụ Shopee: dòng 01/2026, cột 01/2026 = 333 → khai ngay trong tháng; cột 02/2026 = 49 → khai muộn sang tháng 2.',
+  '• Cột Tổng (cuối dòng) = Số đơn của tháng đó ở bảng 1 (trừ vài đơn không rõ ngày điền form). Dòng Tổng cộng (cuối bảng) = số đơn khai trong từng tháng, chỉ tính đơn đặt từ "Báo cáo từ tháng".',
+  '• Ô trống = 0 đơn.',
 ];
 
 /** buildReport() output -> rows for the "Báo cáo" sheet: two tables (by order month, by form month). */
@@ -354,7 +361,30 @@ function reportToRows(report) {
     t[0].months.forEach(function (m) { rows.push(line(label(m), t[0].cells[m])); });
     rows.push(line('Tổng cộng', t[0].total));
   });
-  return rows;
+  // Cross tables go below the reading guide (column I) so the two never overlap.
+  var x = report.cross;
+  if (x && x.orderMonths.length) {
+    while (rows.length < REPORT_GUIDE.length + 1) rows.push(pad([]));
+    REPORT_CHANNELS.forEach(function (ch) {
+      rows.push(pad([]));
+      rows.push([ch + ': đơn ĐẶT trong tháng (dòng) × tháng khách ĐIỀN FORM (cột) – số đơn đã tích điểm']);
+      rows.push(['Tháng đặt ↓ / điền →'].concat(x.claimMonths.map(label), ['Tổng']));
+      var colTotals = x.claimMonths.map(function () { return 0; }), all = 0;
+      x.orderMonths.forEach(function (om) {
+        var byClaim = x.cells[ch][om] || {}, sum = 0;
+        var r = [label(om)].concat(x.claimMonths.map(function (cm, i) {
+          var n = byClaim[cm] || 0;
+          sum += n; colTotals[i] += n;
+          return n || '';
+        }));
+        all += sum;
+        rows.push(r.concat([sum || '']));
+      });
+      rows.push(['Tổng cộng'].concat(colTotals.map(function (n) { return n || ''; }), [all || '']));
+    });
+  }
+  var width = rows.reduce(function (w, r) { return Math.max(w, r.length); }, REPORT_WIDTH);
+  return rows.map(function (r) { while (r.length < width) r.push(''); return r; });
 }
 
 /**
@@ -494,11 +524,19 @@ function writeReport() {
   var sh = sheet_(SHEETS.REPORT);
   sh.getRange(1, 1, sh.getMaxRows(), sh.getMaxColumns()).breakApart();
   sh.clear();
-  sh.getRange(1, 1, rows.length, REPORT_WIDTH).setValues(rows);
-  sh.getRange(1, 2, rows.length, REPORT_WIDTH - 1).setNumberFormat('#,##0').setHorizontalAlignment('right');
+  var width = rows[0].length;
+  sh.getRange(1, 1, rows.length, width).setValues(rows);
+  sh.getRange(1, 2, rows.length, width - 1).setNumberFormat('#,##0').setHorizontalAlignment('right');
+  var tableWidth = REPORT_WIDTH;
   rows.forEach(function (r, i) {
     var at = i + 1;
-    if (/^Theo tháng/.test(r[0])) {
+    if (/^Tháng đặt ↓/.test(r[0])) {
+      sh.getRange(at, 1, 1, tableWidth).setFontWeight('bold').setHorizontalAlignment('center').setBackground('#dbe5f1');
+    } else if (REPORT_CHANNELS.some(function (ch) { return r[0].indexOf(ch + ':') === 0; })) {
+      tableWidth = rows[i + 1].filter(String).length;
+      var bg = { Shopee: '#ee4d2d', Tiktok: '#111111' }[r[0].split(':')[0]] || '#666666';
+      sh.getRange(at, 1, 1, tableWidth).merge().setBackground(bg).setFontColor('#ffffff').setFontWeight('bold');
+    } else if (/^Theo tháng/.test(r[0])) {
       sh.getRange(at, 1, 1, REPORT_WIDTH).merge().setBackground('#1f3864').setFontColor('#ffffff').setFontWeight('bold');
     } else if (r[0] === 'Tháng') {
       sh.getRange(at, 1, 2, 1).merge().setVerticalAlignment('middle');
@@ -508,7 +546,7 @@ function writeReport() {
         sh.getRange(at, 2 + 3 * c, 1, 3).merge().setBackground(colors[ch] || '#666666').setFontColor('#ffffff');
       });
     } else if (r[0] === 'Tổng cộng') {
-      sh.getRange(at, 1, 1, REPORT_WIDTH).setFontWeight('bold').setBackground('#c9daf8');
+      sh.getRange(at, 1, 1, tableWidth).setFontWeight('bold').setBackground('#c9daf8');
     }
   });
   sh.getRange(1, 1, rows.length, 1).setHorizontalAlignment('center');
@@ -582,6 +620,7 @@ if (typeof module !== 'undefined') module.exports = {
   planUpdateBlocks: planUpdateBlocks,
   filterOrderRowsByCodes: filterOrderRowsByCodes,
   reportToRows: reportToRows,
+  REPORT_GUIDE: REPORT_GUIDE,
   creditsToLedgerRows: creditsToLedgerRows,
   reviewToRows: reviewToRows,
   claimKey: claimKey,
