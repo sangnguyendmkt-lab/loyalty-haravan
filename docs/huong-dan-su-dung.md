@@ -52,3 +52,6 @@ Khách điền **nhiều mã trong 1 ô** (xuống dòng, dấu phẩy, "/", "v�
 - **⚙️ Cài đặt kết nối Haravan**: dán token mới khi đổi token.
 - **🔒 Bật phân quyền**: chạy một lần sau khi chia sẻ file cho nhân viên.
 - **📊 Cập nhật báo cáo**: báo cáo tự cập nhật sau mỗi lần ✅. Nút này dùng khi cần cập nhật tay.
+- **Sheet Báo cáo** (chỉ đơn đã tích điểm) có 2 bảng, mỗi tháng một dòng, cột Shopee | Tiktok (Số đơn / Số khách / Điểm thưởng):
+  - **Theo tháng khách đặt đơn** (ngày tạo đơn trên Haravan). Đơn cũ không tra được ngày (quá 365 ngày) nằm ở dòng "Không rõ".
+  - **Theo tháng khách điền form tích điểm.**

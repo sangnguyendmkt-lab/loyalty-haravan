@@ -1,39 +1,39 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
-const { buildReport } = require('../src/rules.js');
+const { buildReport, UNKNOWN_MONTH } = require('../src/rules.js');
 
-const z = () => new Array(12).fill(0);
-function entry(phone, channel, claimedAt, value, points) {
-  return { code: 'X', phone, channel, claimedAt: new Date(claimedAt), value, points };
+function entry(code, phone, channel, claimedAt, orderCreatedAt, points) {
+  return { code, phone, channel, claimedAt: new Date(claimedAt), orderCreatedAt: orderCreatedAt ? new Date(orderCreatedAt) : null, points };
 }
 
-test('buildReport aggregates by claim month and channel, AOV = value / distinct phones', () => {
+test('buildReport counts orders, distinct customers and points per month and channel, by order and by claim month', () => {
   const r = buildReport([
-    entry('0901', 'Shopee', '2026-01-10T03:00:00Z', 1000000, 10),
-    entry('0901', 'shopee', '2026-01-20T03:00:00Z', 500000, 5),
-    entry('0902', 'Tiktok', '2026-02-05T03:00:00Z', 300000, 3),
-    entry('0903', 'Tiktok', '2025-12-05T03:00:00Z', 999, 9),
-  ], 2026);
-  const shopee = { phones: z(), value: z(), points: z(), pointValue: z(), aov: z() };
-  shopee.phones[0] = 1; shopee.value[0] = 1500000; shopee.points[0] = 15; shopee.pointValue[0] = 15000; shopee.aov[0] = 1500000;
-  const tiktok = { phones: z(), value: z(), points: z(), pointValue: z(), aov: z() };
-  tiktok.phones[1] = 1; tiktok.value[1] = 300000; tiktok.points[1] = 3; tiktok.pointValue[1] = 3000; tiktok.aov[1] = 300000;
-  assert.deepEqual(r.Shopee, shopee);
-  assert.deepEqual(r.Tiktok, tiktok);
-  assert.deepEqual(r.Total.phones.slice(0, 2), [1, 1]);
-  assert.deepEqual(r.Total.value.slice(0, 2), [1500000, 300000]);
+    entry('A', '0901', 'Shopee', '2026-02-03T03:00:00Z', '2026-01-10T03:00:00Z', 10),
+    entry('B', '0901', 'shopee', '2026-02-04T03:00:00Z', '2026-01-20T03:00:00Z', 5),
+    entry('C', '0902', 'Tiktok', '2026-02-05T03:00:00Z', '2026-02-01T03:00:00Z', 3),
+    entry('D', '0903', 'Website', '2026-02-05T03:00:00Z', '2026-02-01T03:00:00Z', 99),
+  ]);
+  assert.deepEqual(r.byOrder.months, ['2026-01', '2026-02']);
+  assert.deepEqual(r.byOrder.cells['2026-01'], { Shopee: { orders: 2, customers: 1, points: 15 }, Tiktok: { orders: 0, customers: 0, points: 0 } });
+  assert.deepEqual(r.byOrder.cells['2026-02'].Tiktok, { orders: 1, customers: 1, points: 3 });
+  assert.deepEqual(r.byClaim.months, ['2026-02']);
+  assert.deepEqual(r.byClaim.cells['2026-02'], { Shopee: { orders: 2, customers: 1, points: 15 }, Tiktok: { orders: 1, customers: 1, points: 3 } });
+  assert.deepEqual(r.byClaim.total, r.byOrder.total);
 });
 
-test('buildReport counts a phone once in Total even across channels', () => {
+test('missing order dates come from the Haravan lookup, else "Không rõ" (listed last)', () => {
   const r = buildReport([
-    entry('0901', 'Shopee', '2026-03-01T03:00:00Z', 100, 1),
-    entry('0901', 'Tiktok', '2026-03-02T03:00:00Z', 300, 3),
-  ], 2026);
-  assert.equal(r.Total.phones[2], 1);
-  assert.equal(r.Total.aov[2], 400);
+    entry('260110ABCDEFGH', '0901', 'Shopee', '2026-02-03T03:00:00Z', null, 1),
+    entry('583927961666356425', '0902', 'Tiktok', '2026-02-03T03:00:00Z', null, 2),
+  ], new Map([['260110ABCDEFGH', new Date('2025-12-31T18:00:00Z')]])); // 01:00 on 1 Jan VN
+  assert.deepEqual(r.byOrder.months, ['2026-01', UNKNOWN_MONTH]);
+  assert.equal(r.byOrder.cells[UNKNOWN_MONTH].Tiktok.orders, 1);
 });
 
-test('buildReport uses Vietnam month boundaries', () => {
-  const r = buildReport([entry('0901', 'Shopee', '2026-01-31T18:00:00Z', 100, 1)], 2026); // 01:00 on 1 Feb VN
-  assert.equal(r.Shopee.value[1], 100);
+test('total customers are distinct over the whole period', () => {
+  const r = buildReport([
+    entry('A', '0901', 'Shopee', '2026-01-03T03:00:00Z', '2026-01-01T03:00:00Z', 1),
+    entry('B', '0901', 'Shopee', '2026-03-03T03:00:00Z', '2026-03-01T03:00:00Z', 1),
+  ]);
+  assert.deepEqual(r.byClaim.total.Shopee, { orders: 2, customers: 1, points: 2 });
 });

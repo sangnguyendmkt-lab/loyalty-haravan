@@ -370,43 +370,57 @@ function splitPendingByFailed(rows, failedPhones) {
   };
 }
 
-var REPORT_CHANNELS = ['Total', 'Shopee', 'Tiktok'];
+var REPORT_CHANNELS = ['Shopee', 'Tiktok'];
+var UNKNOWN_MONTH = 'Không rõ';
+
+/** "yyyy-MM" of a date in Vietnam time, or UNKNOWN_MONTH. */
+function vnMonthKey(d) {
+  if (!(d instanceof Date) || isNaN(d.getTime())) return UNKNOWN_MONTH;
+  return vnDayKey(d).slice(0, 7);
+}
 
 /**
- * Monthly report like the old "Tổng Kết" sheet, from ledger entries of the given year.
- * Month = Vietnam-time month of the form claim (claimedAt); AOV = value / distinct phones.
+ * Credited orders per month and channel, twice: by the month the order was placed (Haravan "Ngày tạo")
+ * and by the month the customer filled the form. orderDateByCode fills ledger entries that have no order
+ * date (orders migrated from the old file). Each table: {months: [...sorted, UNKNOWN_MONTH last if any],
+ * cells: {month: {channel: {orders, customers, points}}}, total: {channel: {...}}}.
  */
-function buildReport(ledger, year) {
-  var acc = {};
-  REPORT_CHANNELS.forEach(function (ch) {
-    acc[ch] = { phones: [], value: [], points: [] };
-    for (var m = 0; m < 12; m++) { acc[ch].phones.push(new Set()); acc[ch].value.push(0); acc[ch].points.push(0); }
-  });
-  ledger.forEach(function (e) {
-    if (!e.claimedAt) return;
-    var local = new Date(e.claimedAt.getTime() + VN_OFFSET_MS);
-    if (local.getUTCFullYear() !== year) return;
-    var m = local.getUTCMonth();
-    var ch = String(e.channel || '').trim().toLowerCase();
-    ['Total'].concat(REPORT_CHANNELS.filter(function (c) { return c.toLowerCase() === ch; })).forEach(function (c) {
-      acc[c].phones[m].add(e.phone);
-      acc[c].value[m] += Number(e.value) || 0;
-      acc[c].points[m] += Number(e.points) || 0;
+function buildReport(ledger, orderDateByCode) {
+  orderDateByCode = orderDateByCode || new Map();
+  function table(dateOf) {
+    var acc = {}, total = {};
+    function cell(store, key, ch) {
+      store[key] = store[key] || {};
+      store[key][ch] = store[key][ch] || { orders: 0, phones: new Set(), points: 0 };
+      return store[key][ch];
+    }
+    ledger.forEach(function (e) {
+      var ch = REPORT_CHANNELS.filter(function (c) { return c.toLowerCase() === String(e.channel || '').trim().toLowerCase(); })[0];
+      if (!ch) return;
+      [cell(acc, vnMonthKey(dateOf(e)), ch), cell(total, 'all', ch)].forEach(function (c) {
+        c.orders += 1;
+        c.phones.add(e.phone);
+        c.points += Number(e.points) || 0;
+      });
     });
-  });
-  var out = {};
-  REPORT_CHANNELS.forEach(function (ch) {
-    var a = acc[ch];
-    var phones = a.phones.map(function (s) { return s.size; });
-    out[ch] = {
-      phones: phones,
-      value: a.value,
-      points: a.points,
-      pointValue: a.points.map(function (p) { return p * 1000; }),
-      aov: a.value.map(function (v, i) { return phones[i] ? Math.round(v / phones[i]) : 0; }),
-    };
-  });
-  return out;
+    function plain(byCh) {
+      var out = {};
+      REPORT_CHANNELS.forEach(function (ch) {
+        var c = (byCh || {})[ch];
+        out[ch] = { orders: c ? c.orders : 0, customers: c ? c.phones.size : 0, points: c ? c.points : 0 };
+      });
+      return out;
+    }
+    var months = Object.keys(acc).filter(function (m) { return m !== UNKNOWN_MONTH; }).sort();
+    if (acc[UNKNOWN_MONTH]) months.push(UNKNOWN_MONTH);
+    var cells = {};
+    months.forEach(function (m) { cells[m] = plain(acc[m]); });
+    return { months: months, cells: cells, total: plain(total.all) };
+  }
+  return {
+    byOrder: table(function (e) { return e.orderCreatedAt || orderDateByCode.get(normalizeCode(e.code)) || null; }),
+    byClaim: table(function (e) { return e.claimedAt; }),
+  };
 }
 
 if (typeof module !== 'undefined') module.exports = {
@@ -417,6 +431,8 @@ if (typeof module !== 'undefined') module.exports = {
   parsePhoneList: parsePhoneList,
   splitPendingByFailed: splitPendingByFailed,
   REPORT_CHANNELS: REPORT_CHANNELS,
+  UNKNOWN_MONTH: UNKNOWN_MONTH,
+  vnMonthKey: vnMonthKey,
   buildReport: buildReport,
   EXPORT_HEADERS: EXPORT_HEADERS,
   buildExportRows: buildExportRows,

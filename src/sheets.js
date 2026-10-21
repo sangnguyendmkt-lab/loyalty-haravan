@@ -206,22 +206,27 @@ function planPruneBlocks(rows, cutoff, firstRow) {
   return planUpdateBlocks(del, 1).reverse();
 }
 
-var MONTHS = ['JAN', 'FEB', 'MAR', 'APR', 'MAY', 'JUN', 'JUL', 'AUG', 'SEP', 'OCT', 'NOV', 'DEC'];
+var REPORT_WIDTH = 1 + 3 * REPORT_CHANNELS.length;
 
-/** buildReport() output -> rows for the "Báo cáo" sheet: one 8-row block per channel. */
-function reportToRows(report, year) {
+/** buildReport() output -> rows for the "Báo cáo" sheet: two tables (by order month, by form month). */
+function reportToRows(report) {
   var rows = [];
-  function pad(r) { while (r.length < 13) r.push(''); return r; }
-  REPORT_CHANNELS.forEach(function (ch) {
-    var d = report[ch];
-    rows.push(pad(['Bảng Tổng Hợp Data Khách Hàng Từ Các Kênh Ecom - ' + ch + ' - ' + year]));
-    rows.push([ch].concat(MONTHS));
-    rows.push(['Phone'].concat(d.phones));
-    rows.push(['Giá Trị Đơn Hàng'].concat(d.value));
-    rows.push(['Điểm Loyalty'].concat(d.points));
-    rows.push(['Giá Trị Điểm'].concat(d.pointValue));
-    rows.push(['AOV'].concat(d.aov));
-    rows.push(pad([]));
+  function pad(r) { while (r.length < REPORT_WIDTH) r.push(''); return r; }
+  function label(m) { return m === UNKNOWN_MONTH ? m : m.slice(5, 7) + '/' + m.slice(0, 4); }
+  function line(first, byCh) {
+    var r = [first];
+    REPORT_CHANNELS.forEach(function (ch) { r.push(byCh[ch].orders, byCh[ch].customers, byCh[ch].points); });
+    return r;
+  }
+  [[report.byOrder, 'Theo tháng khách ĐẶT ĐƠN (ngày tạo đơn trên Haravan)'],
+   [report.byClaim, 'Theo tháng khách ĐIỀN FORM tích điểm']].forEach(function (t, k) {
+    if (k) rows.push(pad([]));
+    rows.push(pad([t[1]]));
+    var h1 = ['Tháng'], h2 = [''];
+    REPORT_CHANNELS.forEach(function (ch) { h1.push(ch, '', ''); h2.push('Số đơn', 'Số khách', 'Điểm thưởng'); });
+    rows.push(h1, h2);
+    t[0].months.forEach(function (m) { rows.push(line(label(m), t[0].cells[m])); });
+    rows.push(line('Tổng cộng', t[0].total));
   });
   return rows;
 }
@@ -352,17 +357,53 @@ function protectSheets() {
 }
 
 /** Rewrite the "Báo cáo" sheet for the given year (default: current year in Vietnam). */
-function writeReport(year) {
-  year = year || Number(vnDayKey(new Date()).slice(0, 4));
-  var rows = reportToRows(buildReport(readLedger(), year), year);
+function writeReport() {
+  var ledger = readLedger();
+  var orderDates = backfillLedgerOrderDates_(ledger);
+  var rows = reportToRows(buildReport(ledger, orderDates));
   var sh = sheet_(SHEETS.REPORT);
+  sh.getRange(1, 1, sh.getMaxRows(), sh.getMaxColumns()).breakApart();
   sh.clear();
-  sh.getRange(1, 1, rows.length, 13).setValues(rows);
-  for (var i = 0; i < rows.length; i += 8) {
-    sh.getRange(i + 1, 1).setFontWeight('bold');
-    sh.getRange(i + 2, 1, 1, 13).setFontWeight('bold');
-    sh.getRange(i + 3, 2, 5, 12).setNumberFormat('#,##0');
-  }
+  sh.getRange(1, 1, rows.length, REPORT_WIDTH).setValues(rows);
+  rows.forEach(function (r, i) {
+    if (r[0] === 'Tháng' || r[0] === 'Tổng cộng' || /^Theo tháng/.test(r[0])) sh.getRange(i + 1, 1, 1, REPORT_WIDTH).setFontWeight('bold');
+    if (r[0] === 'Tháng') {
+      for (var c = 0; c < REPORT_CHANNELS.length; c++) sh.getRange(i + 1, 2 + 3 * c, 1, 3).merge().setHorizontalAlignment('center');
+      sh.getRange(i + 2, 1, 1, REPORT_WIDTH).setFontWeight('bold');
+    }
+  });
+  sh.getRange(1, 2, rows.length, REPORT_WIDTH - 1).setNumberFormat('#,##0');
+}
+
+/**
+ * Ledger entries without an order date (migrated from the old file) take Haravan's "Ngày tạo" from the
+ * order cache, looked up by code; found dates are also written into the ledger's blank "Ngày tạo đơn"
+ * cells, so they survive once the cache drops orders older than its retention. Returns Map<code, Date>.
+ */
+function backfillLedgerOrderDates_(ledger) {
+  var missing = new Set(ledger.filter(function (e) { return !e.orderCreatedAt && e.code; }).map(function (e) { return e.code; }));
+  var found = new Map();
+  if (!missing.size) return found;
+  readOrdersForCodes(missing).forEach(function (o) {
+    if (!o.createdAt) return;
+    [o.name, o.marketplaceCode, o.partnerTrackingCode].forEach(function (c) {
+      c = normalizeCode(c);
+      if (c && missing.has(c)) found.set(c, o.createdAt);
+    });
+  });
+  if (!found.size) return found;
+  var sh = sheet_(SHEETS.LEDGER);
+  var last = sh.getLastRow();
+  var codes = sh.getRange(2, 1, last - 1, 1).getValues();
+  var range = sh.getRange(2, 6, last - 1, 1);
+  var dates = range.getValues();
+  var changed = false;
+  codes.forEach(function (r, i) {
+    var d = found.get(normalizeCode(r[0]));
+    if (d && dates[i][0] === '') { dates[i][0] = d; changed = true; }
+  });
+  if (changed) range.setValues(dates);
+  return found;
 }
 
 /** Menu 📊 */
