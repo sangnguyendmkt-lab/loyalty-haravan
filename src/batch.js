@@ -8,6 +8,7 @@ var SYNC = {
   RUN_START: 'ORDERS_SYNC_RUN_START', // when the run in progress started (becomes the next cursor)
   OVERLAP_MS: 60 * 60 * 1000,
   TRIGGER: 'continueOrderSync',
+  PRUNED_DAY: 'ORDERS_PRUNED_DAY', // VN day of the last cleanup of old / non-marketplace orders
 };
 
 function props_() { return PropertiesService.getScriptProperties(); }
@@ -27,7 +28,7 @@ function syncOrders(deadlineMs) {
 
   var params = cursor
     ? { updated_at_min: new Date(new Date(cursor).getTime() - SYNC.OVERLAP_MS).toISOString(), status: 'any' }
-    : { created_at_min: settings.dataStart.toISOString(), status: 'any' };
+    : { created_at_min: syncStartDate(settings, new Date()).toISOString(), status: 'any' };
 
   var sh = sheet_(SHEETS.ORDERS);
   var last = sh.getLastRow();
@@ -56,7 +57,9 @@ function syncOrders(deadlineMs) {
     var items = haravanGet('orders.json', Object.assign({ limit: 50, page: page }, params)).orders || [];
     var appends = [];
     items.forEach(function (raw) {
-      var row = orderToRow(toOrder(raw), String(raw.updated_at || ''));
+      var order = toOrder(raw);
+      if (!isCacheableOrder(order)) return; // only Shopee/TikTok orders are kept
+      var row = orderToRow(order, String(raw.updated_at || ''));
       var at = rowById.get(row[0]);
       if (at) updates.set(at, row);
       else appends.push(row);
@@ -76,7 +79,32 @@ function syncOrders(deadlineMs) {
   p.setProperty(SYNC.CURSOR, runStart);
   p.deleteProperty(SYNC.PAGE);
   p.deleteProperty(SYNC.RUN_START);
+  if (p.getProperty(SYNC.PRUNED_DAY) !== vnDayKey(new Date())) pruneOrderCache(settings);
   return { done: true, fetched: fetched };
+}
+
+/**
+ * Delete cached orders that are not Shopee/TikTok or older than "Số ngày giữ đơn".
+ * The cache is sorted by source then creation date so the rows to delete form a few blocks.
+ */
+function pruneOrderCache(settings) {
+  var sh = sheet_(SHEETS.ORDERS);
+  var last = sh.getLastRow();
+  var removed = 0;
+  if (last > 1) {
+    sh.getRange(2, 1, last - 1, HEADERS[SHEETS.ORDERS].length).sort([{ column: 12, ascending: true }, { column: 5, ascending: true }]);
+    var src = sh.getRange(2, 12, last - 1, 1).getValues();
+    var created = sh.getRange(2, 5, last - 1, 1).getValues();
+    var rows = src.map(function (r, i) { return [r[0], created[i][0]]; });
+    planPruneBlocks(rows, syncStartDate(settings, new Date()), 2).forEach(function (b) {
+      var n = b[1] - b[0] + 1;
+      if (n === last - 1) sh.getRange(2, 1, n, HEADERS[SHEETS.ORDERS].length).clearContent(); // can't delete every row
+      else sh.deleteRows(b[0], n);
+      removed += n;
+    });
+  }
+  props_().setProperty(SYNC.PRUNED_DAY, vnDayKey(new Date()));
+  return removed;
 }
 
 /**

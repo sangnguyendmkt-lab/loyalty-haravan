@@ -37,6 +37,7 @@ var SETTINGS_DEFAULTS = [
   ['Hệ số Gold', 3, ''],
   ['Hệ số Platinum', 5, ''],
   ['Số ngày chờ sau giao', 15, 'Đơn giao thành công đủ số ngày này mới được tích'],
+  ['Số ngày giữ đơn', 365, 'Chỉ lưu đơn Shopee/TikTok tạo trong số ngày gần nhất này; đơn cũ hơn tự xoá'],
   ['Nguồn khách hàng', 'sheet', 'api = lấy qua API; sheet = dán file vào sheet "Khách hàng Haravan"'],
 ];
 
@@ -94,6 +95,7 @@ function parseSettingsRows(rows) {
     vndPerPoint: toNumber_(byLabel['Số tiền mỗi điểm']) || 100000,
     multipliers: multipliers,
     waitDays: isNaN(parseFloat(byLabel['Số ngày chờ sau giao'])) ? 15 : toNumber_(byLabel['Số ngày chờ sau giao']),
+    retentionDays: isNaN(parseFloat(byLabel['Số ngày giữ đơn'])) ? 365 : toNumber_(byLabel['Số ngày giữ đơn']),
     customerSource: String(byLabel['Nguồn khách hàng'] || 'api').trim().toLowerCase() === 'sheet' ? 'sheet' : 'api',
   };
 }
@@ -180,6 +182,28 @@ function planUpdateBlocks(rowNumbers, maxGap) {
     else blocks.push([r, r]);
   });
   return blocks;
+}
+
+/** Only Shopee/TikTok orders are worth caching (spec R1). */
+function isCacheableOrder(o) { return MARKETPLACE_SOURCE.test(o.source || ''); }
+
+/** First order creation date to keep: the later of "Ngày bắt đầu dữ liệu" and now - "Số ngày giữ đơn". */
+function syncStartDate(settings, now) {
+  var byRetention = new Date(now.getTime() - settings.retentionDays * DAY_MS);
+  return settings.dataStart && settings.dataStart > byRetention ? settings.dataStart : byRetention;
+}
+
+/**
+ * Cache rows [source, createdAt ISO] sorted by source then date, first one at sheet row firstRow ->
+ * [first, last] row blocks to delete (non-marketplace sources, or created before cutoff), bottom-up for deleteRows.
+ */
+function planPruneBlocks(rows, cutoff, firstRow) {
+  var del = [];
+  rows.forEach(function (r, i) {
+    var created = new Date(r[1]);
+    if (!MARKETPLACE_SOURCE.test(String(r[0] || '')) || isNaN(created.getTime()) || created < cutoff) del.push(firstRow + i);
+  });
+  return planUpdateBlocks(del, 1).reverse();
 }
 
 var MONTHS = ['JAN', 'FEB', 'MAR', 'APR', 'MAY', 'JUN', 'JUL', 'AUG', 'SEP', 'OCT', 'NOV', 'DEC'];
@@ -357,6 +381,9 @@ if (typeof module !== 'undefined') module.exports = {
   rowToSubmission: rowToSubmission,
   editRowsToLedgerRows: editRowsToLedgerRows,
   orderToRow: orderToRow,
+  isCacheableOrder: isCacheableOrder,
+  syncStartDate: syncStartDate,
+  planPruneBlocks: planPruneBlocks,
   planUpdateBlocks: planUpdateBlocks,
   filterOrderRowsByCodes: filterOrderRowsByCodes,
   reportToRows: reportToRows,

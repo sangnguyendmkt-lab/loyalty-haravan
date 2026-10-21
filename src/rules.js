@@ -76,7 +76,7 @@ function customersFreshness(updatedIso, lastConfirmIso, now) {
 var REASONS = {
   TAKEN_BY_OTHER: 'Đơn đã được người khác tích',
   PHONE_INVALID: 'SĐT sai',
-  NOT_FOUND: 'Không tìm thấy (khai sai, scam, hoặc đơn trước 08/2025)',
+  NOT_FOUND: 'Không tìm thấy (khai sai, scam, hoặc đơn quá 365 ngày)',
   NOT_DELIVERED: 'Chờ giao',
   WAITING_DAYS: 'Chờ đủ N ngày',
   UNKNOWN_TIER: 'Hạng không xác định',
@@ -301,6 +301,8 @@ function buildReport(ledger, year) {
 
 if (typeof module !== 'undefined') module.exports = {
   vnDayKey: vnDayKey,
+  MARKETPLACE_SOURCE: MARKETPLACE_SOURCE,
+  DAY_MS: DAY_MS,
   customersFreshness: customersFreshness,
   parsePhoneList: parsePhoneList,
   splitPendingByFailed: splitPendingByFailed,
