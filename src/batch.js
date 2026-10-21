@@ -223,3 +223,141 @@ function createBatch() {
     lock.releaseLock();
   }
 }
+
+function requireOpenBatch_(ui) {
+  var meta = openBatch_();
+  if (!meta) { ui.alert('Chưa có đợt nào đang mở. Hãy bấm 🚀 Tạo file loyalty trước.'); return null; }
+  return meta;
+}
+
+function batchUploadRows_() {
+  var b = sheet_(SHEETS.BATCH);
+  var n = b.getLastRow() - BATCH_DATA_ROW + 1;
+  if (n < 1) return [];
+  return b.getRange(BATCH_DATA_ROW, 1, n, EXPORT_HEADERS.length).getValues()
+    .filter(function (r) { return String(r[1]).trim() !== ''; })
+    .map(function (r) {
+      return r.map(function (v, i) { return i === 8 ? Number(v) || 0 : String(v); });
+    });
+}
+
+function exportFolder_() {
+  var it = DriveApp.getFoldersByName('Loyalty Exports');
+  return it.hasNext() ? it.next() : DriveApp.createFolder('Loyalty Exports');
+}
+
+/** Menu 📥: build loyalty_yyyy-MM-dd.xlsx exactly like the file Haravan accepted, save to Drive, show a link. */
+function exportBatch() {
+  var ui = SpreadsheetApp.getUi();
+  var meta = requireOpenBatch_(ui);
+  if (!meta) return;
+  if (meta.day !== vnDayKey(new Date())) {
+    ui.alert('Đợt ' + meta.batchId + ' đã hết hạn (chỉ dùng trong ngày tạo).\n\nHãy ❌ Huỷ đợt rồi 🚀 tạo lại để lấy điểm mới nhất.');
+    return;
+  }
+  var rows = batchUploadRows_();
+  if (!rows.length) { ui.alert('Đợt này không có khách nào được tích điểm, không cần upload.'); return; }
+
+  var tmp = SpreadsheetApp.create('loyalty-tmp-' + meta.batchId);
+  try {
+    var sh = tmp.getSheets()[0].setName('Sheet1');
+    var all = [EXPORT_HEADERS].concat(rows);
+    sh.getRange(1, 1, all.length, EXPORT_HEADERS.length).setNumberFormat('@');
+    sh.getRange(2, 9, rows.length, 1).setNumberFormat('0');
+    sh.getRange(1, 1, all.length, EXPORT_HEADERS.length).setValues(all);
+    SpreadsheetApp.flush();
+    var blob = UrlFetchApp.fetch('https://docs.google.com/spreadsheets/d/' + tmp.getId() + '/export?format=xlsx', {
+      headers: { Authorization: 'Bearer ' + ScriptApp.getOAuthToken() },
+    }).getBlob().setName('loyalty_' + meta.day + '.xlsx');
+    var file = exportFolder_().createFile(blob);
+    updateHistory_(meta.batchId, { 11: file.getUrl() });
+    var html = HtmlService.createHtmlOutput(
+      '<div style="font:14px sans-serif">' +
+      '<p><b>' + rows.length + ' khách</b> — file <b>' + file.getName() + '</b></p>' +
+      '<p><a href="' + file.getDownloadUrl() + '" target="_blank">📥 Tải file về máy</a></p>' +
+      '<p>⚠️ Hãy upload lên Haravan <b>ngay bây giờ</b>. Điểm khách thay đổi trên Haravan sau lúc tạo đợt sẽ bị file này ghi đè.</p>' +
+      '<p>Upload xong, bấm <b>✅ Xác nhận đã upload</b>.</p></div>').setWidth(420).setHeight(220);
+    ui.showModalDialog(html, 'File loyalty đã sẵn sàng');
+  } finally {
+    DriveApp.getFileById(tmp.getId()).setTrashed(true);
+  }
+}
+
+/** Menu ✅: ask whether Haravan accepted everything or only part of the file. */
+function confirmBatch() {
+  var ui = SpreadsheetApp.getUi();
+  var meta = requireOpenBatch_(ui);
+  if (!meta) return;
+  var html = HtmlService.createHtmlOutput(
+    '<div style="font:14px sans-serif">' +
+    '<p>Đợt <b>' + meta.batchId + '</b>. Haravan đã nhận file thế nào?</p>' +
+    '<label><input type="radio" name="m" value="all" checked> Thành công toàn bộ</label><br>' +
+    '<label><input type="radio" name="m" value="part"> Thành công một phần</label>' +
+    '<p>Nếu một phần: dán <b>số điện thoại các dòng bị lỗi</b> (mỗi dòng một số):</p>' +
+    '<textarea id="t" rows="6" style="width:100%"></textarea>' +
+    '<p><button id="b" onclick="go()">Xác nhận</button> <span id="s"></span></p></div>' +
+    '<script>function go(){var m=document.querySelector("input[name=m]:checked").value;' +
+    'var t=document.getElementById("t").value;document.getElementById("b").disabled=true;' +
+    'document.getElementById("s").textContent="Đang ghi...";' +
+    'google.script.run.withSuccessHandler(function(r){document.getElementById("s").textContent=r;})' +
+    '.withFailureHandler(function(e){document.getElementById("s").textContent="Lỗi: "+e.message;document.getElementById("b").disabled=false;})' +
+    '.confirmBatchSubmit(m,t);}</script>').setWidth(440).setHeight(360);
+  ui.showModalDialog(html, '✅ Xác nhận đã upload');
+}
+
+/** Called from the confirm dialog. Moves the batch's orders into the ledger (except failed phones) and closes it. */
+function confirmBatchSubmit(mode, failedText) {
+  var lock = LockService.getDocumentLock();
+  if (!lock.tryLock(5000)) throw new Error('Đang có người xử lý, vui lòng chờ.');
+  try {
+    var meta = openBatch_();
+    if (!meta) throw new Error('Không còn đợt nào đang mở.');
+    var failed = { phones: [], invalid: [] };
+    if (mode === 'part') {
+      failed = parsePhoneList(failedText);
+      if (failed.invalid.length) throw new Error('SĐT không hợp lệ: ' + failed.invalid.join(', '));
+      if (!failed.phones.length) throw new Error('Hãy dán ít nhất một SĐT bị lỗi, hoặc chọn "Thành công toàn bộ".');
+    }
+    var pending = sheet_(SHEETS.PENDING);
+    var rows = pending.getLastRow() > 1
+      ? pending.getRange(2, 1, pending.getLastRow() - 1, HEADERS[SHEETS.LEDGER].length).getValues() : [];
+    var split = splitPendingByFailed(rows, failed.phones);
+    if (split.notInBatch.length) throw new Error('Các SĐT này không có trong đợt: ' + split.notInBatch.join(', '));
+
+    if (split.keep.length) {
+      var ledger = sheet_(SHEETS.LEDGER);
+      ledger.getRange(ledger.getLastRow() + 1, 1, split.keep.length, split.keep[0].length).setValues(split.keep);
+    }
+    updateHistory_(meta.batchId, {
+      7: failed.phones.length ? 'Đã upload một phần' : 'Đã upload', 8: userEmail_(), 9: nowText_(),
+      10: failed.phones.join(', '),
+    });
+    clearBatchSheets_();
+    props_().deleteProperty(OPEN_BATCH_KEY);
+    if (typeof writeReport === 'function') writeReport();
+    return '✅ Đã ghi ' + split.keep.length + ' đơn vào "' + SHEETS.LEDGER + '"' +
+      (split.failed.length ? '; ' + split.failed.length + ' đơn của khách lỗi sẽ được xét lại đợt sau.' : '.') +
+      ' Có thể đóng hộp thoại.';
+  } finally {
+    lock.releaseLock();
+  }
+}
+
+/** Menu ❌: discard the open batch (only when it was NOT uploaded). */
+function cancelBatch() {
+  var ui = SpreadsheetApp.getUi();
+  var meta = requireOpenBatch_(ui);
+  if (!meta) return;
+  var ok = ui.alert('Huỷ đợt ' + meta.batchId, 'Bạn chắc chắn CHƯA upload file này lên Haravan?', ui.ButtonSet.YES_NO);
+  if (ok !== ui.Button.YES) return;
+  var lock = LockService.getDocumentLock();
+  if (!lock.tryLock(5000)) { ui.alert('Đang có người xử lý, vui lòng chờ.'); return; }
+  try {
+    clearBatchSheets_();
+    updateHistory_(meta.batchId, { 7: 'Đã huỷ', 8: userEmail_(), 9: nowText_() });
+    props_().deleteProperty(OPEN_BATCH_KEY);
+  } finally {
+    lock.releaseLock();
+  }
+  ui.alert('Đã huỷ đợt ' + meta.batchId + '. Sổ đơn đã tích không thay đổi.');
+}

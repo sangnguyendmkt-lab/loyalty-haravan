@@ -203,6 +203,30 @@ function formatExportRow(r) {
     r.points, r.lastOrderAt ? formatIsoVN(r.lastOrderAt) : ''];
 }
 
+/** "0394..\n868..., +84 377 227 784" -> {phones: normalized unique, invalid: raw tokens}. Separators: newline , ; */
+function parsePhoneList(text) {
+  var phones = [], invalid = [];
+  String(text || '').split(/[\n,;]+/).forEach(function (t) {
+    var tok = t.trim();
+    if (!tok) return;
+    var p = normalizePhone(tok);
+    if (!p) invalid.push(tok);
+    else if (phones.indexOf(p) < 0) phones.push(p);
+  });
+  return { phones: phones, invalid: invalid };
+}
+
+/** Split pending ledger rows (phone in column C) into those to keep and those whose upload failed. */
+function splitPendingByFailed(rows, failedPhones) {
+  var failedSet = new Set(failedPhones);
+  var inBatch = new Set(rows.map(function (r) { return String(r[2]); }));
+  return {
+    keep: rows.filter(function (r) { return !failedSet.has(String(r[2])); }),
+    failed: rows.filter(function (r) { return failedSet.has(String(r[2])); }),
+    notInBatch: failedPhones.filter(function (p) { return !inBatch.has(p); }),
+  };
+}
+
 var REPORT_CHANNELS = ['Total', 'Shopee', 'Tiktok'];
 
 /**
@@ -244,6 +268,8 @@ function buildReport(ledger, year) {
 
 if (typeof module !== 'undefined') module.exports = {
   vnDayKey: vnDayKey,
+  parsePhoneList: parsePhoneList,
+  splitPendingByFailed: splitPendingByFailed,
   REPORT_CHANNELS: REPORT_CHANNELS,
   buildReport: buildReport,
   EXPORT_HEADERS: EXPORT_HEADERS,

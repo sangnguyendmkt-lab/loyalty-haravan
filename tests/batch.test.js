@@ -41,3 +41,19 @@ test('batchSummaryRows reports counts', () => {
     ['Cần kiểm tra / đang chờ', '1 / 2'],
   ]);
 });
+
+const { parsePhoneList, splitPendingByFailed } = require('../src/rules.js');
+
+test('parsePhoneList accepts newline/comma separated phones and reports invalid ones', () => {
+  assert.deepEqual(parsePhoneList('0394729963\n868696395, +84 377 227 784;abc12'),
+    { phones: ['0394729963', '0868696395', '0377227784'], invalid: ['abc12'] });
+  assert.deepEqual(parsePhoneList('   '), { phones: [], invalid: [] });
+});
+
+test('splitPendingByFailed keeps rows of successful phones only', () => {
+  const rows = [['A', '', '0394729963'], ['B', '', '0868696395'], ['C', '', '0394729963']];
+  const r = splitPendingByFailed(rows, ['0394729963', '0999999999']);
+  assert.deepEqual(r.keep.map(x => x[0]), ['B']);
+  assert.deepEqual(r.failed.map(x => x[0]), ['A', 'C']);
+  assert.deepEqual(r.notInBatch, ['0999999999']);
+});
