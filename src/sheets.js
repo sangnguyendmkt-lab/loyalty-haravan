@@ -162,6 +162,26 @@ function batchSummaryRows(meta, exportRows, credits, review) {
   ];
 }
 
+var MONTHS = ['JAN', 'FEB', 'MAR', 'APR', 'MAY', 'JUN', 'JUL', 'AUG', 'SEP', 'OCT', 'NOV', 'DEC'];
+
+/** buildReport() output -> rows for the "Báo cáo" sheet: one 8-row block per channel. */
+function reportToRows(report, year) {
+  var rows = [];
+  function pad(r) { while (r.length < 13) r.push(''); return r; }
+  REPORT_CHANNELS.forEach(function (ch) {
+    var d = report[ch];
+    rows.push(pad(['Bảng Tổng Hợp Data Khách Hàng Từ Các Kênh Ecom - ' + ch + ' - ' + year]));
+    rows.push([ch].concat(MONTHS));
+    rows.push(['Phone'].concat(d.phones));
+    rows.push(['Giá Trị Đơn Hàng'].concat(d.value));
+    rows.push(['Điểm Loyalty'].concat(d.points));
+    rows.push(['Giá Trị Điểm'].concat(d.pointValue));
+    rows.push(['AOV'].concat(d.aov));
+    rows.push(pad([]));
+  });
+  return rows;
+}
+
 /**
  * Old file "Edit" rows (columns A..Q) -> ledger rows for every Done order, first occurrence per code.
  * The old sheet's processing date 08/01/2025 was a typo for 08/01/2026 (confirmed by the owner).
@@ -259,20 +279,50 @@ function readForm(settings) {
     .filter(function (s) { return String(s.codeRaw || '').trim() !== '' || String(s.phoneRaw || '').trim() !== ''; });
 }
 
-/** Owner-only sheets; staff may edit only the Ghi chú column of Cần kiểm tra and the customer paste sheet. */
-function applyProtections(ownerEmail) {
+/**
+ * Menu 🔒 (owner): "Cài đặt" is owner-only. Ledger/history/batch sheets get warning-only protection:
+ * scripts run as the person clicking, so a hard lock would stop staff from confirming a batch,
+ * while the warning still prevents accidental manual edits.
+ */
+function protectSheets() {
   var ss = ss_();
-  [SHEETS.SETTINGS, SHEETS.LEDGER, SHEETS.HISTORY, SHEETS.REPORT, SHEETS.ORDERS, SHEETS.BATCH, SHEETS.REVIEW]
-    .forEach(function (name) {
-      var sh = ss.getSheetByName(name);
-      if (!sh) return;
-      sh.getProtections(SpreadsheetApp.ProtectionType.SHEET).forEach(function (p) { p.remove(); });
-      var p = sh.protect().setDescription('Loyalty: chỉ hệ thống ghi');
-      if (name === SHEETS.REVIEW) p.setUnprotectedRanges([sh.getRange('I2:I')]);
-      p.addEditor(ownerEmail);
-      p.removeEditors(p.getEditors().filter(function (u) { return u.getEmail() !== ownerEmail; }));
+  var ui = SpreadsheetApp.getUi();
+  var owner = ss.getOwner();
+  if (owner && Session.getActiveUser().getEmail() !== owner.getEmail()) { ui.alert('Chỉ chủ shop được bật phân quyền.'); return; }
+  Object.keys(SHEETS).forEach(function (k) {
+    var sh = ss.getSheetByName(SHEETS[k]);
+    if (!sh || SHEETS[k] === SHEETS.CUSTOMERS) return;
+    sh.getProtections(SpreadsheetApp.ProtectionType.SHEET).forEach(function (p) { p.remove(); });
+    var p = sh.protect().setDescription('Loyalty: chỉ hệ thống ghi');
+    if (SHEETS[k] === SHEETS.SETTINGS) {
+      p.removeEditors(p.getEditors());
       if (p.canDomainEdit()) p.setDomainEdit(false);
-    });
+    } else {
+      if (SHEETS[k] === SHEETS.REVIEW) p.setUnprotectedRanges([sh.getRange('I2:I')]);
+      p.setWarningOnly(true);
+    }
+  });
+  ui.alert('🔒 Đã bật phân quyền: chỉ chủ shop sửa được "Cài đặt"; các sheet hệ thống sẽ cảnh báo khi sửa tay.');
+}
+
+/** Rewrite the "Báo cáo" sheet for the given year (default: current year in Vietnam). */
+function writeReport(year) {
+  year = year || Number(vnDayKey(new Date()).slice(0, 4));
+  var rows = reportToRows(buildReport(readLedger(), year), year);
+  var sh = sheet_(SHEETS.REPORT);
+  sh.clear();
+  sh.getRange(1, 1, rows.length, 13).setValues(rows);
+  for (var i = 0; i < rows.length; i += 8) {
+    sh.getRange(i + 1, 1).setFontWeight('bold');
+    sh.getRange(i + 2, 1, 1, 13).setFontWeight('bold');
+    sh.getRange(i + 3, 2, 5, 12).setNumberFormat('#,##0');
+  }
+}
+
+/** Menu 📊 */
+function refreshReport() {
+  writeReport();
+  SpreadsheetApp.getUi().alert('📊 Đã cập nhật sheet "' + SHEETS.REPORT + '".');
 }
 
 if (typeof module !== 'undefined') module.exports = {
@@ -285,6 +335,7 @@ if (typeof module !== 'undefined') module.exports = {
   rowToSubmission: rowToSubmission,
   editRowsToLedgerRows: editRowsToLedgerRows,
   orderToRow: orderToRow,
+  reportToRows: reportToRows,
   creditsToLedgerRows: creditsToLedgerRows,
   reviewToRows: reviewToRows,
   batchSummaryRows: batchSummaryRows,
