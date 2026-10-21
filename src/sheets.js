@@ -103,6 +103,23 @@ function rowToSubmission(r, rowNumber) {
   };
 }
 
+function bool_(v) { return v === true || String(v).toUpperCase() === 'TRUE'; }
+function iso_(d) { return d ? d.toISOString() : ''; }
+
+/** Order -> cache row; dates stored as ISO text so the sheet's timezone never shifts them. */
+function orderToRow(o, updatedAt) {
+  return [o.id, o.name, o.marketplaceCode, o.partnerTrackingCode, iso_(o.createdAt), iso_(o.deliveredAt),
+    o.delivered, o.voided, o.valueAfterDiscount, o.province, updatedAt || ''];
+}
+
+function rowToOrder(r) {
+  return {
+    id: String(r[0]), name: String(r[1] || ''), marketplaceCode: String(r[2] || ''),
+    partnerTrackingCode: String(r[3] || ''), createdAt: toDateOrNull_(r[4]), deliveredAt: toDateOrNull_(r[5]),
+    delivered: bool_(r[6]), voided: bool_(r[7]), valueAfterDiscount: toNumber_(r[8]), province: String(r[9] || ''),
+  };
+}
+
 /**
  * Old file "Edit" rows (columns A..Q) -> ledger rows for every Done order, first occurrence per code.
  * The old sheet's processing date 08/01/2025 was a typo for 08/01/2026 (confirmed by the owner).
@@ -223,4 +240,6 @@ if (typeof module !== 'undefined') module.exports = {
   parseSettingsRows: parseSettingsRows,
   rowToSubmission: rowToSubmission,
   editRowsToLedgerRows: editRowsToLedgerRows,
+  orderToRow: orderToRow,
+  rowToOrder: rowToOrder,
 };

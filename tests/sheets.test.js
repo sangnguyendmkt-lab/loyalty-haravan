@@ -56,3 +56,25 @@ test('editRowsToLedgerRows keeps first Done row per code and fixes the 2025 batc
     ['26010320YB0XAA', '', '0394729963', 'Shopee', '04/01/2026 09:52:54', '', 2270000, 'Silver', 1, 23, 'CU-08/01/2026', 'Chuyển từ file cũ'],
   ]);
 });
+
+const { orderToRow, rowToOrder } = require('../src/sheets.js');
+
+test('order cache row round-trips', () => {
+  const o = {
+    id: '1787759655', name: '260331K73WX8Q3', marketplaceCode: '260331K73WX8Q3', partnerTrackingCode: 'SPXVN061698231174',
+    createdAt: new Date('2026-03-31T12:48:04Z'), deliveredAt: new Date('2026-04-03T03:34:15Z'), delivered: true,
+    voided: false, valueAfterDiscount: 254000, province: 'Hà Nội',
+  };
+  const row = orderToRow(o, '2026-04-04T09:52:19.126Z');
+  assert.equal(row.length, HEADERS[SHEETS.ORDERS].length);
+  assert.equal(row[10], '2026-04-04T09:52:19.126Z');
+  assert.deepEqual(rowToOrder(row), o);
+});
+
+test('rowToOrder reads sheet booleans/strings and empty delivery date', () => {
+  const o = rowToOrder(['1', 'X', 'X', '', '2026-10-21T00:07:13.000Z', '', 'FALSE', false, '140000', '', '']);
+  assert.equal(o.delivered, false);
+  assert.equal(o.deliveredAt, null);
+  assert.equal(o.voided, false);
+  assert.equal(o.valueAfterDiscount, 140000);
+});

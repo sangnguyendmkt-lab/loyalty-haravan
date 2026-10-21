@@ -15,6 +15,7 @@ function onOpen() {
       .addItem('🛠 Thiết lập file', 'setupSheets')
       .addItem('📦 Chép dữ liệu cũ (1 lần)', 'migrateLedgerFromOldFile')
       .addItem('🔍 Chạy thử API', 'probeHaravan')
+      .addItem('🔄 Tải đơn hàng Haravan', 'startOrderSync')
       .addItem('🔒 Bật phân quyền', 'protectSheets'))
     .addToUi();
 }
