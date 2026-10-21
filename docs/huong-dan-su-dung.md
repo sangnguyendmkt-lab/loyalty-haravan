@@ -19,7 +19,18 @@ File: **Loyalty Haravan** trên Google Drive. Mọi thao tác nằm trong menu *
    - Haravan nhận hết → chọn **Thành công toàn bộ**.
    - Haravan báo lỗi một số dòng → chọn **Thành công một phần** và dán **số điện thoại các dòng lỗi** (mỗi dòng một số). Những khách này sẽ được xét lại ở tuần sau.
 
+Sau khi ✅, hệ thống **tự xoá sạch sheet Khách hàng Haravan** (vì dữ liệu đó chưa có điểm vừa cộng) và cập nhật sheet **Form + trạng thái**.
+
 **Không upload được, hoặc tạo đợt nhầm?** Bấm **❌ Huỷ đợt**. Chỉ huỷ khi file **chưa** được upload.
+
+## Sheet "Form + trạng thái"
+
+Mỗi câu trả lời Google Form là một dòng, thêm 3 cột:
+- **Trạng thái**: `Done` (đã tích đủ) · `Done 2/3` (ô nhiều mã, mới tích 2) · `Đang chờ` · `Cần xem` · `Đã loại` · `Chưa xét` (khai sau lần 🚀 gần nhất → **cần chạy đợt mới**).
+- **Ngày xử lý**: ngày của đợt đã ✅ tích đơn đó.
+- **Chi tiết**: lý do khi chưa Done (ô nhiều mã: từng mã một dòng).
+
+Tự cập nhật sau mỗi lần ✅; bấm **📋 Cập nhật Form + trạng thái** khi muốn xem các câu trả lời mới. Lọc cột Trạng thái = `Chưa xét` để biết còn bao nhiêu đơn đang chờ đợt upload tiếp theo.
 
 ## Ý nghĩa sheet "Cần kiểm tra"
 

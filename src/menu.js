@@ -10,6 +10,7 @@ function onOpen() {
     .addItem('❌ Huỷ đợt', 'cancelBatch')
     .addSeparator()
     .addItem('📊 Cập nhật báo cáo', 'refreshReport')
+    .addItem('📋 Cập nhật Form + trạng thái', 'refreshFormStatus')
     .addSubMenu(SpreadsheetApp.getUi().createMenu('Quản trị (chủ shop)')
       .addItem('⚙️ Cài đặt kết nối Haravan', 'setupToken')
       .addItem('🛠 Thiết lập file', 'setupSheets')

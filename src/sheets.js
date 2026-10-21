@@ -15,6 +15,7 @@ var SHEETS = {
   ORDERS: 'Đơn Haravan',
   PENDING: 'Đợt - chi tiết',
   EXCLUDED: 'Đã loại',
+  FORM_STATUS: 'Form + trạng thái',
 };
 
 var HEADERS = {};
@@ -27,6 +28,8 @@ HEADERS[SHEETS.HISTORY] = ['Mã đợt', 'Tạo lúc', 'Người tạo', 'Số k
 HEADERS[SHEETS.REVIEW] = ['Dòng form', 'Thời gian khai', 'Kênh', 'SĐT', 'Mã đơn', 'Loại', 'Lý do',
   'Lần đầu thấy', 'Ghi chú', 'Số đợt ✅ không thấy'];
 HEADERS[SHEETS.EXCLUDED] = ['Khoá (dòng form|mã)', 'Ngày loại'];
+HEADERS[SHEETS.FORM_STATUS] = ['Dòng form', 'Thời gian khai', 'Kênh', 'Họ tên', 'SĐT', 'Email', 'Mã đơn',
+  'Trạng thái', 'Ngày xử lý', 'Chi tiết'];
 HEADERS[SHEETS.ORDERS] = ['ID', 'Mã đơn', 'Mã đơn sàn', 'Mã vận chuyển đối tác', 'Ngày tạo',
   'Ngày giao thành công', 'Đã giao', 'Huỷ/Hoàn', 'Giá trị sau giảm', 'Tỉnh', 'Cập nhật lúc', 'Nguồn đơn'];
 
@@ -184,6 +187,60 @@ function planReviewOnConfirm(rows) {
   return { keep: keep, excluded: excluded };
 }
 
+/** Ledger batch id -> processing day "dd/MM/yyyy" ("20261021-2242" or "CU-08/01/2026"). */
+function batchDay_(batchId) {
+  var m = /^(\d{4})(\d{2})(\d{2})-/.exec(batchId);
+  if (m) return m[3] + '/' + m[2] + '/' + m[1];
+  m = /^CU-(\d{2}\/\d{2}\/\d{4})$/.exec(batchId);
+  return m ? m[1] : '';
+}
+
+/**
+ * Form answers + where each one stands, one row per form row. A code is Done when the ledger holds it
+ * (or the whole cell, for migrated rows) for this row's phone; otherwise it takes its "Cần kiểm tra"
+ * status, "Đã loại", or stays blank (not evaluated yet). Several codes: "Done k/n" until all are done.
+ */
+function formStatusRows(submissions, ledger, reviewRows, excludedKeys) {
+  var done = new Map(); // code -> [{phone, day}]
+  ledger.forEach(function (e) {
+    if (!done.has(e.code)) done.set(e.code, []);
+    done.get(e.code).push({ phone: e.phone, day: batchDay_(e.batchId) });
+  });
+  var review = new Map();
+  reviewRows.forEach(function (r) { review.set(claimKey(r[0], r[4]), { kind: String(r[5]), reason: String(r[6]) }); });
+  function doneDay(code, phone) {
+    var hit = (done.get(code) || []).filter(function (x) { return x.phone === phone; })[0];
+    return hit ? hit.day || '?' : null;
+  }
+  return submissions.slice().sort(function (a, b) { return a.row - b.row; }).map(function (s) {
+    var phone = normalizePhone(s.phoneRaw) || '';
+    var codes = splitCodes(s.codeRaw);
+    var wholeDay = doneDay(normalizeCode(s.codeRaw), phone);
+    var days = [], notes = [];
+    codes.forEach(function (code) {
+      var day = wholeDay || doneDay(code, phone);
+      if (day) { days.push(day); return; }
+      var key = claimKey(s.row, code), rv = review.get(key);
+      var note = rv ? rv.kind + ': ' + rv.reason : excludedKeys.has(key) ? 'Đã loại' : 'Chưa xét';
+      notes.push(codes.length > 1 ? code + ' – ' + note : note);
+    });
+    var status;
+    if (codes.length && days.length === codes.length) status = 'Done';
+    else if (days.length) status = 'Done ' + days.length + '/' + codes.length;
+    else if (codes.length === 1 && notes.length) status = notes[0].split(':')[0];
+    else status = notes.length ? 'Chưa xong' : '';
+    var lastDay = days.sort(function (a, b) {
+      var k = function (d) { return d.split('/').reverse().join(''); };
+      return k(a) < k(b) ? -1 : k(a) > k(b) ? 1 : 0;
+    }).pop() || '';
+    var ts = parseFormTimestamp(s.timestamp);
+    return [s.row, ts ? formatIsoVN(ts).slice(0, 19).replace('T', ' ') : String(s.timestamp || ''), s.channel, s.name,
+      String(s.phoneRaw === null || s.phoneRaw === undefined ? '' : s.phoneRaw), s.email,
+      String(s.codeRaw === null || s.codeRaw === undefined ? '' : s.codeRaw), status, lastDay,
+      codes.length === 1 && status !== 'Done' ? notes[0].replace(/^[^:]*: /, '') : notes.join('\n')];
+  });
+}
+
 function batchSummaryRows(meta, exportRows, credits, review) {
   var warn = review.filter(function (r) { return r.kind === 'warn'; }).length;
   return [
@@ -319,6 +376,7 @@ function setupSheets() {
     if (name === SHEETS.ORDERS) sh.getRange('A:L').setNumberFormat('@');
     if (name === SHEETS.ORDERS || name === SHEETS.PENDING || name === SHEETS.EXCLUDED) sh.hideSheet();
     if (name === SHEETS.EXCLUDED) sh.getRange('A:A').setNumberFormat('@');
+    if (name === SHEETS.FORM_STATUS) sh.setFrozenRows(1);
     if (name === SHEETS.PENDING) sh.getRange('A:C').setNumberFormat('@');
   });
   var blank = ss.getSheetByName('Sheet1') || ss.getSheetByName('Trang tính1');
@@ -462,6 +520,7 @@ if (typeof module !== 'undefined') module.exports = {
   reviewToRows: reviewToRows,
   claimKey: claimKey,
   planReviewOnConfirm: planReviewOnConfirm,
+  formStatusRows: formStatusRows,
   NOT_FOUND_CONFIRM_LIMIT: NOT_FOUND_CONFIRM_LIMIT,
   batchSummaryRows: batchSummaryRows,
   rowToOrder: rowToOrder,

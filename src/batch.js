@@ -179,6 +179,29 @@ function readExcludedKeys_() {
   return new Set(sh.getRange(2, 1, sh.getLastRow() - 1, 1).getValues().map(function (r) { return String(r[0]); }));
 }
 
+/** Rewrite "Form + trạng thái": every form answer with Done / review status and processing day. */
+function writeFormStatus_() {
+  var settings = readSettings();
+  var r = sheet_(SHEETS.REVIEW);
+  var reviewRows = r.getLastRow() > 1 ? r.getRange(2, 1, r.getLastRow() - 1, HEADERS[SHEETS.REVIEW].length).getValues() : [];
+  var rows = formStatusRows(readForm(settings), readLedger(), reviewRows, readExcludedKeys_());
+  var sh = ss_().getSheetByName(SHEETS.FORM_STATUS);
+  if (!sh) { setupSheets(); sh = sheet_(SHEETS.FORM_STATUS); }
+  var width = HEADERS[SHEETS.FORM_STATUS].length;
+  sh.getRange(1, 1, 1, width).setValues([HEADERS[SHEETS.FORM_STATUS]]).setFontWeight('bold');
+  if (sh.getLastRow() > 1) sh.getRange(2, 1, sh.getLastRow() - 1, width).clearContent();
+  if (rows.length) {
+    sh.getRange(2, 1, rows.length, width).setNumberFormat('@');
+    sh.getRange(2, 1, rows.length, width).setValues(rows.map(function (x) { return x.map(String); }));
+  }
+}
+
+/** Menu 📋 */
+function refreshFormStatus() {
+  writeFormStatus_();
+  SpreadsheetApp.getUi().alert('📋 Đã cập nhật sheet "' + SHEETS.FORM_STATUS + '".');
+}
+
 /** ✅ step: apply planReviewOnConfirm to "Cần kiểm tra" and remember the dropped keys. */
 function pruneReviewOnConfirm_() {
   var r = sheet_(SHEETS.REVIEW);
@@ -438,10 +461,13 @@ function confirmBatchSubmit(mode, failedText) {
     });
     clearBatchSheets_();
     props_().deleteProperty(OPEN_BATCH_KEY);
+    // The pasted export now lacks the points just uploaded; clearing it forces a fresh paste next time.
+    sheet_(SHEETS.CUSTOMERS).clearContents();
     try { writeReport(); } catch (e) { /* the confirm itself succeeded; 📊 can rebuild the report */ }
+    try { writeFormStatus_(); } catch (e) { /* menu "📋 Cập nhật Form + trạng thái" rebuilds it */ }
     return '✅ Đã ghi ' + split.keep.length + ' đơn vào "' + SHEETS.LEDGER + '"' +
       (split.failed.length ? '; ' + split.failed.length + ' đơn của khách lỗi sẽ được xét lại đợt sau.' : '.') +
-      ' Có thể đóng hộp thoại.';
+      ' Đã xoá sheet "' + SHEETS.CUSTOMERS + '" (lần sau dán file mới). Có thể đóng hộp thoại.';
   } finally {
     lock.releaseLock();
   }
