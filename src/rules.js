@@ -2,7 +2,7 @@
  * Loyalty Haravan — pure business rules (no Google APIs, runs in Node and Apps Script).
  *
  * Shared data shapes:
- *   Submission  {row, timestamp, channel, name, phoneRaw, email, codeRaw}
+ *   Submission  {row, timestamp, channel, name, phoneRaw, email, codeRaw, cellCode?}
  *   Order       {id, name, marketplaceCode, partnerTrackingCode, createdAt, deliveredAt,
  *                delivered, voided, valueAfterDiscount, province}
  *   Customer    {phone, name, email, province, tier, points, totalSpent, periodSpent, lastOrderAt}
@@ -31,6 +31,72 @@ function normalizePhone(raw) {
 function normalizeCode(raw) {
   if (raw === null || raw === undefined) return '';
   return String(raw).replace(/\s+/g, '').toUpperCase();
+}
+
+/** Known code shapes (uppercase, no separators): marketplace order codes and carrier tracking codes. */
+var CODE_SHAPES = [
+  'SHOPEEVTPVN\\d{12}F?', 'SPE-[0-9A-F]{8}-\\d{12}', 'SPXVN\\d{11}[0-9A-C]', 'LVN\\d{12}', 'ET\\d{12}',
+  '(?:J&T(?:VN)?|JT)\\d{12}', 'VNGH\\d{11,12}', 'TTVN\\d{10}', '[A-Z]{2}\\d{9}VN',
+  '5[78]\\d{16}',                                              // TikTok order id
+  '(?:00)?86\\d{10}',                                          // bare J&T
+  '2\\d(?:0[1-9]|1[0-2])(?:0[1-9]|[12]\\d|3[01])[A-Z0-9]{8}',  // Shopee: YYMMDD + 8
+];
+var KNOWN_CODE = new RegExp('^(?:' + CODE_SHAPES.join('|') + ')$');
+
+/** Split s into ≥1 known codes laid end to end, or null when it is not exactly such a sequence. */
+function segmentKnownCodes_(s) {
+  var memo = {};
+  function from(i) {
+    if (i === s.length) return [];
+    if (memo[i] !== undefined) return memo[i];
+    memo[i] = null;
+    for (var len = 12; len <= 25 && i + len <= s.length; len++) {
+      var piece = s.slice(i, i + len);
+      if (!KNOWN_CODE.test(piece)) continue;
+      var rest = from(i + len);
+      if (rest) { memo[i] = [piece].concat(rest); break; }
+    }
+    return memo[i];
+  }
+  return s ? from(0) : null;
+}
+
+/**
+ * One form cell -> the order codes in it. Customers put several codes in one cell (newlines, commas,
+ * "/", "và"…) or add labels ("Shopee:", "Mã đơn", "#"). The whole cell is used when it is exactly a run
+ * of known codes; otherwise each code-like token (≥8 chars, ≥5 digits) is kept, split further only when
+ * it is exactly a run of known codes. Nothing is guessed: a cell with no such token stays one code.
+ */
+function splitCodes(raw) {
+  var whole = normalizeCode(raw);
+  if (!whole) return [];
+  var clean = function (t) { return t.toUpperCase().replace(/[^A-Z0-9&-]/g, '').replace(/^-+|-+$/g, ''); };
+  var all = segmentKnownCodes_(clean(String(raw)));
+  var out = [];
+  if (all) out = all;
+  else {
+    String(raw).split(/[\s,;\/|+]+/).forEach(function (t) {
+      t = clean(t);
+      if (t.length < 8 || (t.match(/\d/g) || []).length < 5) return;
+      out = out.concat(segmentKnownCodes_(t) || [t]);
+    });
+  }
+  out = out.filter(function (c, i) { return out.indexOf(c) === i; });
+  return out.length ? out : [whole];
+}
+
+/** One submission per code in its cell; cellCode keeps the whole cell for ledger entries migrated per cell. */
+function expandSubmissions(submissions) {
+  var out = [];
+  submissions.forEach(function (s) {
+    var cellCode = normalizeCode(s.codeRaw);
+    var codes = splitCodes(s.codeRaw);
+    if (!codes.length) { out.push(s); return; }
+    codes.forEach(function (code) {
+      out.push(Object.assign({}, s, { codeRaw: code, cellCode: cellCode }));
+    });
+  });
+  return out;
 }
 
 /** Parse a Google Form timestamp ("dd/MM/yyyy HH:mm:ss", Vietnam time) or a Date. */
@@ -142,6 +208,11 @@ function evaluateSubmissions(submissions, ledger, orderIndex, customersByPhone, 
   sorted.forEach(function (s) {
     var code = normalizeCode(s.codeRaw);
     var phone = normalizePhone(s.phoneRaw);
+    // A cell credited whole by the old process covers every code split out of it.
+    if (s.cellCode && s.cellCode !== code && ledgerPhone.has(s.cellCode)) {
+      if (ledgerPhone.get(s.cellCode) !== phone) warn(s, REASONS.TAKEN_BY_OTHER);
+      return;
+    }
     if (ledgerPhone.has(code)) {
       if (ledgerPhone.get(code) !== phone) warn(s, REASONS.TAKEN_BY_OTHER);
       return;
@@ -357,6 +428,8 @@ if (typeof module !== 'undefined') module.exports = {
   evaluateSubmissions: evaluateSubmissions,
   normalizePhone: normalizePhone,
   normalizeCode: normalizeCode,
+  splitCodes: splitCodes,
+  expandSubmissions: expandSubmissions,
   parseFormTimestamp: parseFormTimestamp,
   formatVnd: formatVnd,
   formatIsoVN: formatIsoVN,

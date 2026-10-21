@@ -36,6 +36,8 @@ File: **Loyalty Haravan** trên Google Drive. Mọi thao tác nằm trong menu *
 
 Mọi đơn trong sheet này **tự được xét lại ở lần 🚀 sau**, không cần làm gì thêm.
 
+Khách điền **nhiều mã trong 1 ô** (xuống dòng, dấu phẩy, "/", "và"…) hoặc kèm chữ ("Shopee:", "Mã đơn", "#"): hệ thống tự tách và xét **từng mã riêng**, nên một ô có thể vừa được tích vừa có dòng trong sheet này.
+
 ## Thông báo thường gặp
 
 - **"Đợt trước chưa được xác nhận hoặc huỷ"**: bấm ✅ (nếu đã upload) hoặc ❌ (nếu chưa).

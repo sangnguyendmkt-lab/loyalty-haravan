@@ -241,7 +241,7 @@ function createBatch() {
     }
 
     var now = new Date();
-    var submissions = readForm(settings);
+    var submissions = expandSubmissions(readForm(settings));
     var codes = new Set(submissions.map(function (x) { return normalizeCode(x.codeRaw); }).filter(Boolean));
     var result = evaluateSubmissions(submissions, readLedger(), buildOrderIndex(readOrdersForCodes(codes)), customers, settings, now);
     var exportRows = buildExportRows(result.credits, customers);
