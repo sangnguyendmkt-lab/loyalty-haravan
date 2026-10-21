@@ -306,6 +306,24 @@ function planPruneBlocks(rows, cutoff, firstRow) {
 
 var REPORT_WIDTH = 1 + 3 * REPORT_CHANNELS.length;
 
+/**
+ * Order-cache rows -> orders placed per channel and month (Haravan "Ngày tạo"), cancelled/returned left out:
+ * {channel: {"yyyy-MM": n}}. Months before fromMonth are skipped. Pass `out` to add to earlier counts.
+ */
+function placedOrdersByMonth(orderRows, fromMonth, out) {
+  out = out || {};
+  REPORT_CHANNELS.forEach(function (ch) { out[ch] = out[ch] || {}; });
+  orderRows.forEach(function (r) {
+    var o = rowToOrder(r);
+    if (o.voided) return;
+    var ch = REPORT_CHANNELS.filter(function (c) { return o.source.toLowerCase().indexOf(c.toLowerCase()) !== -1; })[0];
+    var m = vnMonthKey(o.createdAt);
+    if (!ch || m === UNKNOWN_MONTH || (fromMonth && m < fromMonth)) return;
+    out[ch][m] = (out[ch][m] || 0) + 1;
+  });
+  return out;
+}
+
 /** How to read the report, written beside the tables (column I). Lines starting with "#" are headings. */
 var REPORT_GUIDE = [
   '# HƯỚNG DẪN ĐỌC BÁO CÁO',
@@ -338,8 +356,13 @@ var REPORT_GUIDE = [
   '• Đọc theo dòng: dòng 01/2026 cho biết đơn đặt tháng 1 được khách khai vào tháng 1, tháng 2, tháng 3... bao nhiêu đơn.',
   '• Ví dụ Shopee: dòng 01/2026, cột 01/2026 = 333 → khai ngay trong tháng; cột 02/2026 = 49 → khai muộn sang tháng 2.',
   '• Cột Tổng (cuối dòng) = Số đơn của tháng đó ở bảng 1 (trừ vài đơn không rõ ngày điền form). Dòng Tổng cộng (cuối bảng) = số đơn khai trong từng tháng, chỉ tính đơn đặt từ "Báo cáo từ tháng".',
+  '• Tổng đơn phát sinh = số đơn của kênh tạo trong tháng trên Haravan, trừ đơn huỷ/hoàn (đã tích điểm hay chưa).',
+  '• Tỷ lệ điền form trong tháng = đơn khai ngay trong tháng đặt ÷ cột Tổng. Ví dụ 333 ÷ 402 = 82,84%.',
+  '• Tỷ lệ đã tích / đơn phát sinh = cột Tổng ÷ Tổng đơn phát sinh: bao nhiêu % đơn của tháng đã được khách tích điểm (tính cả khai muộn).',
   '• Ô trống = 0 đơn.',
 ];
+
+var CROSS_EXTRA = ['Tổng đơn phát sinh (trừ huỷ/hoàn)', 'Tỷ lệ điền form trong tháng', 'Tỷ lệ đã tích / đơn phát sinh'];
 
 /** buildReport() output -> rows for the "Báo cáo" sheet: two tables (by order month, by form month). */
 function reportToRows(report) {
@@ -368,8 +391,10 @@ function reportToRows(report) {
     REPORT_CHANNELS.forEach(function (ch) {
       rows.push(pad([]));
       rows.push([ch + ': đơn ĐẶT trong tháng (dòng) × tháng khách ĐIỀN FORM (cột) – số đơn đã tích điểm']);
-      rows.push(['Tháng đặt ↓ / điền →'].concat(x.claimMonths.map(label), ['Tổng']));
-      var colTotals = x.claimMonths.map(function () { return 0; }), all = 0;
+      rows.push(['Tháng đặt ↓ / điền →'].concat(x.claimMonths.map(label), ['Tổng'].concat(CROSS_EXTRA)));
+      var placedByMonth = (report.placed || {})[ch] || {};
+      function ratio(a, b) { return b ? a / b : ''; }
+      var colTotals = x.claimMonths.map(function () { return 0; }), all = 0, sameMonthAll = 0, placedAll = 0;
       x.orderMonths.forEach(function (om) {
         var byClaim = x.cells[ch][om] || {}, sum = 0;
         var r = [label(om)].concat(x.claimMonths.map(function (cm, i) {
@@ -377,10 +402,12 @@ function reportToRows(report) {
           sum += n; colTotals[i] += n;
           return n || '';
         }));
-        all += sum;
-        rows.push(r.concat([sum || '']));
+        var same = byClaim[om] || 0, placed = placedByMonth[om] || 0;
+        all += sum; sameMonthAll += same; placedAll += placed;
+        rows.push(r.concat([sum || '', placed || '', ratio(same, sum), ratio(sum, placed)]));
       });
-      rows.push(['Tổng cộng'].concat(colTotals.map(function (n) { return n || ''; }), [all || '']));
+      rows.push(['Tổng cộng'].concat(colTotals.map(function (n) { return n || ''; }),
+        [all || '', placedAll || '', ratio(sameMonthAll, all), ratio(all, placedAll)]));
     });
   }
   var width = rows.reduce(function (w, r) { return Math.max(w, r.length); }, REPORT_WIDTH);
@@ -520,18 +547,27 @@ function writeReport() {
   var settings = readSettings();
   var ledger = readLedger();
   var orderDates = backfillLedgerOrderDates_(ledger);
-  var rows = reportToRows(buildReport(ledger, orderDates, settings.reportFromMonth));
+  var report = buildReport(ledger, orderDates, settings.reportFromMonth);
+  report.placed = {};
+  forEachOrderChunk_(function (chunk) { placedOrdersByMonth(chunk, settings.reportFromMonth, report.placed); });
+  var rows = reportToRows(report);
   var sh = sheet_(SHEETS.REPORT);
   sh.getRange(1, 1, sh.getMaxRows(), sh.getMaxColumns()).breakApart();
   sh.clear();
   var width = rows[0].length;
+  // Month labels stay text ("01/2026"), otherwise Sheets turns them into dates.
+  sh.getRange(1, 1, rows.length, 1).setNumberFormat('@');
+  rows.forEach(function (r, i) { if (/^Tháng đặt ↓/.test(r[0])) sh.getRange(i + 1, 1, 1, width).setNumberFormat('@'); });
   sh.getRange(1, 1, rows.length, width).setValues(rows);
   sh.getRange(1, 2, rows.length, width - 1).setNumberFormat('#,##0').setHorizontalAlignment('right');
   var tableWidth = REPORT_WIDTH;
   rows.forEach(function (r, i) {
     var at = i + 1;
     if (/^Tháng đặt ↓/.test(r[0])) {
-      sh.getRange(at, 1, 1, tableWidth).setFontWeight('bold').setHorizontalAlignment('center').setBackground('#dbe5f1');
+      sh.getRange(at, 1, 1, tableWidth).setFontWeight('bold').setHorizontalAlignment('center').setBackground('#dbe5f1').setWrap(true);
+      var bodyRows = 0;
+      while (rows[i + 1 + bodyRows] && rows[i + 1 + bodyRows][0] !== '') bodyRows++;
+      sh.getRange(at + 1, tableWidth - 1, bodyRows, 2).setNumberFormat('0.00%');
     } else if (REPORT_CHANNELS.some(function (ch) { return r[0].indexOf(ch + ':') === 0; })) {
       tableWidth = rows[i + 1].filter(String).length;
       var bg = { Shopee: '#ee4d2d', Tiktok: '#111111' }[r[0].split(':')[0]] || '#666666';
@@ -553,7 +589,8 @@ function writeReport() {
   // Guide beside the tables; no wrap so the table rows keep their height (the text runs over empty columns).
   var guideCol = REPORT_WIDTH + 2;
   sh.getRange(1, guideCol, REPORT_GUIDE.length, 1)
-    .setValues(REPORT_GUIDE.map(function (t) { return [t.replace(/^# /, '')]; })).setWrap(false);
+    .setValues(REPORT_GUIDE.map(function (t) { return [t.replace(/^# /, '')]; })).setWrap(false)
+    .setHorizontalAlignment('left').setNumberFormat('@');
   REPORT_GUIDE.forEach(function (t, i) { if (/^# /.test(t)) sh.getRange(i + 1, guideCol).setFontWeight('bold').setFontColor('#1f3864'); });
 }
 
@@ -586,6 +623,16 @@ function backfillLedgerOrderDates_(ledger) {
   });
   if (changed) range.setValues(dates);
   return found;
+}
+
+/** Calls fn with the order cache rows, 20,000 at a time. */
+function forEachOrderChunk_(fn) {
+  var sh = sheet_(SHEETS.ORDERS);
+  var last = sh.getLastRow();
+  var width = HEADERS[SHEETS.ORDERS].length;
+  for (var start = 2; start <= last; start += 20000) {
+    fn(sh.getRange(start, 1, Math.min(20000, last - start + 1), width).getValues());
+  }
 }
 
 /** Add a SETTINGS_DEFAULTS row missing from an older "Cài đặt" sheet. */
@@ -621,6 +668,7 @@ if (typeof module !== 'undefined') module.exports = {
   filterOrderRowsByCodes: filterOrderRowsByCodes,
   reportToRows: reportToRows,
   REPORT_GUIDE: REPORT_GUIDE,
+  placedOrdersByMonth: placedOrdersByMonth,
   creditsToLedgerRows: creditsToLedgerRows,
   reviewToRows: reviewToRows,
   claimKey: claimKey,

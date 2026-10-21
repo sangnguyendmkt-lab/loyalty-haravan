@@ -74,3 +74,4 @@ Khách điền **nhiều mã trong 1 ô** (xuống dòng, dấu phẩy, "/", "v�
   - Chỉ hiện từ tháng ghi ở Cài đặt **Báo cáo từ tháng** (mặc định 01/2026); đơn đặt trước tháng đó không tính ở bảng 1, nên tổng bảng 1 có thể thấp hơn bảng 2.
   - Hướng dẫn đọc báo cáo được ghi ngay trong sheet, cột I.
   - Bên dưới phần hướng dẫn có thêm 2 bảng ma trận (Shopee, TikTok): dòng = tháng đặt đơn, cột = tháng khách điền form, ô = số đơn đã tích điểm.
+  - Sau cột Tổng của bảng ma trận có thêm: Tổng đơn phát sinh (đơn tạo trong tháng trên Haravan, trừ huỷ/hoàn), Tỷ lệ điền form trong tháng (khai ngay trong tháng ÷ Tổng), Tỷ lệ đã tích / đơn phát sinh (Tổng ÷ Tổng đơn phát sinh).
