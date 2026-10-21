@@ -27,7 +27,7 @@ File: **Loyalty Haravan** trên Google Drive. Mọi thao tác nằm trong menu *
 |---|---|---|
 | Cần xem | Đơn đã được người khác tích | Mã đơn đã cộng điểm cho số điện thoại khác. Kiểm tra nếu khách khiếu nại |
 | Cần xem | SĐT sai | Khách điền sai số. Liên hệ khách nếu cần |
-| Cần xem | Không tìm thấy | Mã đơn không có trên Haravan: khai sai, đơn giả, hoặc đơn trước 08/2025 |
+| Cần xem | Không tìm thấy | Mã đơn không có trên Haravan: khai sai, đơn giả, hoặc đơn quá 365 ngày |
 | Cần xem | Đơn đã huỷ / hoàn / trả hàng | Không được tích điểm |
 | Cần xem | Không phải đơn Shopee/TikTok | Đơn website/Lazada… không thuộc chương trình |
 | Cần xem | Hạng không xác định | Hạng của khách trên Haravan không phải Silver/Gold/Platinum. Báo chủ shop |
@@ -46,7 +46,7 @@ Mọi đơn trong sheet này **tự được xét lại ở lần 🚀 sau**, kh
 
 ## Chỉ dành cho chủ shop (menu Quản trị)
 
-- **Cài đặt** (số tiền mỗi điểm, hệ số hạng, số ngày chờ): sửa trực tiếp trong sheet **Cài đặt**.
+- **Cài đặt** (số tiền mỗi điểm, hệ số hạng, số ngày chờ, số ngày giữ đơn): sửa trực tiếp trong sheet **Cài đặt**.
 - **⚙️ Cài đặt kết nối Haravan**: dán token mới khi đổi token.
 - **🔒 Bật phân quyền**: chạy một lần sau khi chia sẻ file cho nhân viên.
 - **📊 Cập nhật báo cáo**: báo cáo tự cập nhật sau mỗi lần ✅. Nút này dùng khi cần cập nhật tay.
