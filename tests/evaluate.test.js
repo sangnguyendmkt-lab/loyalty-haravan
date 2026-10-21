@@ -72,9 +72,9 @@ test('matches on partner tracking code and on lowercase/spaced code', () => {
   assert.deepEqual(r.credits.map(c => c.order.id), ['id-D1', 'id-D2']);
 });
 
-test('voided orders are not matchable', () => {
+test('cancelled or returned order is warned with its own reason', () => {
   const r = run([sub('01/10/2026 10:00:00', '0901111111', 'V1')], [ord('V1', { voided: true })]);
-  assert.deepEqual(r.review.map(x => x.reason), [REASONS.NOT_FOUND]);
+  assert.deepEqual(r.review.map(x => [x.kind, x.reason]), [['warn', REASONS.VOIDED]]);
 });
 
 test('not found warned', () => {

@@ -35,7 +35,7 @@ var SETTINGS_DEFAULTS = [
   ['Hệ số Gold', 3, ''],
   ['Hệ số Platinum', 5, ''],
   ['Số ngày chờ sau giao', 15, 'Đơn giao thành công đủ số ngày này mới được tích'],
-  ['Nguồn khách hàng', 'api', 'api = lấy qua API; sheet = dán file vào sheet "Khách hàng Haravan"'],
+  ['Nguồn khách hàng', 'sheet', 'api = lấy qua API; sheet = dán file vào sheet "Khách hàng Haravan"'],
 ];
 
 function toNumber_(v) {

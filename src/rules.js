@@ -65,19 +65,19 @@ var REASONS = {
   NOT_DELIVERED: 'Chờ giao',
   WAITING_DAYS: 'Chờ đủ N ngày',
   UNKNOWN_TIER: 'Hạng không xác định',
+  VOIDED: 'Đơn đã huỷ / hoàn / trả hàng',
 };
 
 var DEFAULT_TIER = 'Silver';
 var DAY_MS = 24 * 60 * 60 * 1000;
 
-/** Index orders by marketplace code, partner tracking code and Haravan order name. Voided orders are skipped. */
+/** Index orders by marketplace code, partner tracking code and Haravan order name. */
 function buildOrderIndex(orders) {
   var index = new Map();
   orders.forEach(function (o) {
-    if (o.voided) return;
     [o.marketplaceCode, o.partnerTrackingCode, o.name].forEach(function (k) {
       var key = normalizeCode(k);
-      if (key && !index.has(key)) index.set(key, o);
+      if (key && (!index.has(key) || (index.get(key).voided && !o.voided))) index.set(key, o);
     });
   });
   return index;
@@ -127,6 +127,7 @@ function evaluateSubmissions(submissions, ledger, orderIndex, customersByPhone, 
 
     var order = orderIndex.get(code);
     if (!order) return warn(s, REASONS.NOT_FOUND);
+    if (order.voided) return warn(s, REASONS.VOIDED);
     if (!order.delivered || !order.deliveredAt) return wait(s, REASONS.NOT_DELIVERED);
     if (now.getTime() - order.deliveredAt.getTime() < settings.waitDays * DAY_MS) {
       return wait(s, REASONS.WAITING_DAYS.replace('N', String(settings.waitDays)));

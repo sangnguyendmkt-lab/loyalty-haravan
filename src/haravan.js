@@ -31,6 +31,77 @@ function flattenForProbe(obj) {
   return out;
 }
 
+function num_(v) {
+  if (typeof v === 'number') return v;
+  var n = Number(String(v === null || v === undefined ? '' : v).replace(/,/g, ''));
+  return isNaN(n) ? 0 : n;
+}
+
+function date_(v) {
+  if (!v) return null;
+  var d = v instanceof Date ? v : new Date(v);
+  return isNaN(d.getTime()) ? null : d;
+}
+
+/** Haravan order JSON -> Order. Value is total_price (after discounts); delivery comes from the carrier status. */
+function toOrder(raw) {
+  var fs = raw.fulfillments || [];
+  var delivered = null;
+  fs.forEach(function (f) { if (!delivered && f.carrier_status_code === 'delivered') delivered = f; });
+  var tracking = '';
+  fs.forEach(function (f) { if (!tracking && f.tracking_number) tracking = String(f.tracking_number); });
+  var returned = fs.some(function (f) { return !!f.return_date || /return/i.test(f.carrier_status_code || ''); });
+  return {
+    id: String(raw.id),
+    name: String(raw.name || ''),
+    marketplaceCode: String(raw.order_number || raw.name || ''),
+    partnerTrackingCode: tracking,
+    createdAt: date_(raw.created_at),
+    deliveredAt: delivered ? date_(delivered.delivered_date) : null,
+    delivered: !!delivered,
+    voided: raw.cancelled_status === 'cancelled' || !!raw.cancelled_at ||
+      /refunded|voided/.test(raw.financial_status || '') || returned,
+    valueAfterDiscount: num_(raw.total_price),
+    province: String((raw.shipping_address && raw.shipping_address.province) || ''),
+  };
+}
+
+var CUSTOMER_COLS = {
+  name: 'Họ và tên', phone: 'Số điện thoại', email: 'Email', province: 'Tỉnh/Thành phố',
+  totalSpent: 'Tổng chi tiêu', periodSpent: 'Chi tiêu tích luỹ trong kỳ', tier: 'Hạng thành viên',
+  points: 'Điểm thưởng', lastOrderAt: 'Ngày đặt hàng cuối cùng',
+};
+
+/** Rows of the pasted Haravan customer export (header found within the first 5 rows) -> Map<phone, Customer>. */
+function customersFromSheetRows(rows) {
+  var h = -1;
+  for (var i = 0; i < Math.min(rows.length, 5) && h < 0; i++) {
+    if (rows[i].map(function (c) { return String(c).trim(); }).indexOf(CUSTOMER_COLS.phone) >= 0) h = i;
+  }
+  if (h < 0) throw new Error('Không thấy cột "' + CUSTOMER_COLS.phone + '" trong sheet khách hàng. Hãy dán cả dòng tiêu đề của file xuất từ Haravan.');
+  var header = rows[h].map(function (c) { return String(c).trim(); });
+  var col = {};
+  Object.keys(CUSTOMER_COLS).forEach(function (k) { col[k] = header.indexOf(CUSTOMER_COLS[k]); });
+  function get(r, k) { return col[k] >= 0 ? r[col[k]] : ''; }
+  var out = new Map();
+  rows.slice(h + 1).forEach(function (r) {
+    var phone = normalizePhone(get(r, 'phone'));
+    if (!phone) return;
+    out.set(phone, {
+      phone: phone,
+      name: String(get(r, 'name') || '').trim(),
+      email: String(get(r, 'email') || '').trim(),
+      province: String(get(r, 'province') || '').trim(),
+      tier: String(get(r, 'tier') || '').trim(),
+      points: num_(get(r, 'points')),
+      totalSpent: num_(get(r, 'totalSpent')),
+      periodSpent: num_(get(r, 'periodSpent')),
+      lastOrderAt: date_(get(r, 'lastOrderAt')),
+    });
+  });
+  return out;
+}
+
 /* ---------------- Apps Script I/O (not run in Node) ---------------- */
 
 function haravanToken_() {
@@ -109,4 +180,6 @@ function probeHaravan() {
 if (typeof module !== 'undefined') module.exports = {
   buildQuery: buildQuery,
   flattenForProbe: flattenForProbe,
+  toOrder: toOrder,
+  customersFromSheetRows: customersFromSheetRows,
 };
