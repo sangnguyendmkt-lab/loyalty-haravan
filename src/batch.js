@@ -170,6 +170,32 @@ function startOrderSync() {
 var OPEN_BATCH_KEY = 'OPEN_BATCH';
 var CUSTOMERS_UPDATED_KEY = 'CUSTOMERS_UPDATED_AT';
 var LAST_CONFIRM_KEY = 'LAST_CONFIRM_AT';
+var REVIEW_DONE_KEY = 'REVIEW_PRUNED_BATCH';
+
+/** Keys (dòng form|mã) dropped from review for good; they are never evaluated again. */
+function readExcludedKeys_() {
+  var sh = ss_().getSheetByName(SHEETS.EXCLUDED);
+  if (!sh || sh.getLastRow() < 2) return new Set();
+  return new Set(sh.getRange(2, 1, sh.getLastRow() - 1, 1).getValues().map(function (r) { return String(r[0]); }));
+}
+
+/** ✅ step: apply planReviewOnConfirm to "Cần kiểm tra" and remember the dropped keys. */
+function pruneReviewOnConfirm_() {
+  var r = sheet_(SHEETS.REVIEW);
+  var width = HEADERS[SHEETS.REVIEW].length;
+  if (r.getLastRow() < 2) return;
+  var plan = planReviewOnConfirm(r.getRange(2, 1, r.getLastRow() - 1, width).getValues());
+  if (plan.excluded.length) {
+    var ex = ss_().getSheetByName(SHEETS.EXCLUDED);
+    if (!ex) { setupSheets(); ex = sheet_(SHEETS.EXCLUDED); }
+    var at = ex.getLastRow() + 1;
+    var today = vnDayKey(new Date());
+    ex.getRange(at, 1, plan.excluded.length, 1).setNumberFormat('@');
+    ex.getRange(at, 1, plan.excluded.length, 2).setValues(plan.excluded.map(function (k) { return [k, today]; }));
+  }
+  r.getRange(2, 1, r.getLastRow() - 1, width).clearContent();
+  if (plan.keep.length) r.getRange(2, 1, plan.keep.length, width).setValues(plan.keep);
+}
 var BATCH_DATA_ROW = 9; // summary in rows 1-6, header in row 8, upload rows from row 9
 
 function openBatch_() {
@@ -241,7 +267,10 @@ function createBatch() {
     }
 
     var now = new Date();
-    var submissions = expandSubmissions(readForm(settings));
+    var excluded = readExcludedKeys_();
+    var submissions = expandSubmissions(readForm(settings)).filter(function (x) {
+      return !excluded.has(claimKey(x.row, x.codeRaw));
+    });
     var codes = new Set(submissions.map(function (x) { return normalizeCode(x.codeRaw); }).filter(Boolean));
     var result = evaluateSubmissions(submissions, readLedger(), buildOrderIndex(readOrdersForCodes(codes)), customers, settings, now);
     var exportRows = buildExportRows(result.credits, customers);
@@ -271,6 +300,7 @@ function createBatch() {
 
     // Review sheet, keeping staff notes.
     var r = sheet_(SHEETS.REVIEW);
+    r.getRange(1, 1, 1, HEADERS[SHEETS.REVIEW].length).setValues([HEADERS[SHEETS.REVIEW]]).setFontWeight('bold');
     var prevRows = r.getLastRow() > 1 ? r.getRange(2, 1, r.getLastRow() - 1, HEADERS[SHEETS.REVIEW].length).getValues() : [];
     var reviewRows = reviewToRows(result.review, prevRows, meta.day);
     if (r.getLastRow() > 1) r.getRange(2, 1, r.getLastRow() - 1, HEADERS[SHEETS.REVIEW].length).clearContent();
@@ -396,6 +426,10 @@ function confirmBatchSubmit(mode, failedText) {
       var at = ledger.getLastRow() + 1;
       ledger.getRange(at, 1, split.keep.length, 3).setNumberFormat('@');
       ledger.getRange(at, 1, split.keep.length, split.keep[0].length).setValues(split.keep);
+    }
+    if (props_().getProperty(REVIEW_DONE_KEY) !== meta.batchId) { // count each batch once, even on a retry
+      pruneReviewOnConfirm_();
+      props_().setProperty(REVIEW_DONE_KEY, meta.batchId);
     }
     props_().setProperty(LAST_CONFIRM_KEY, new Date().toISOString());
     updateHistory_(meta.batchId, {

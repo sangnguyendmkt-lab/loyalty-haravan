@@ -36,6 +36,11 @@ File: **Loyalty Haravan** trên Google Drive. Mọi thao tác nằm trong menu *
 
 Mọi đơn trong sheet này **tự được xét lại ở lần 🚀 sau**, không cần làm gì thêm.
 
+**Tự dọn sau mỗi lần ✅** (dòng bị loại sẽ **không bao giờ được xét lại**):
+- "SĐT sai", "Đơn đã được người khác tích", "Không phải đơn Shopee/TikTok", "Đơn đã huỷ / hoàn / trả hàng": bị xoá ngay khi bấm ✅. Cần xử lý (gọi khách, ghi chú…) thì làm **trước** khi bấm ✅.
+- "Không tìm thấy": cột **Số đợt ✅ không thấy** tăng 1 sau mỗi lần ✅; đủ **5 đợt** thì bị xoá.
+- "Chờ giao", "Chờ đủ 15 ngày", "Hạng không xác định": giữ nguyên đến khi xử lý được.
+
 Khách điền **nhiều mã trong 1 ô** (xuống dòng, dấu phẩy, "/", "và"…) hoặc kèm chữ ("Shopee:", "Mã đơn", "#"): hệ thống tự tách và xét **từng mã riêng**, nên một ô có thể vừa được tích vừa có dòng trong sheet này.
 
 ## Thông báo thường gặp

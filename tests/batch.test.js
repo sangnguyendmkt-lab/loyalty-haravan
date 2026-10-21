@@ -27,8 +27,8 @@ test('reviewToRows keeps first-seen date and staff notes from the previous run, 
     { submission: Object.assign({}, sub, { row: 8, codeRaw: 'W1' }), kind: 'wait', reason: 'Chờ giao' },
     { submission: sub, kind: 'warn', reason: 'Không tìm thấy' },
   ], prev, '2026-10-21');
-  assert.deepEqual(rows[0], [7, '2026-01-04 09:52:54', 'Shopee', '394729963', '2601XX', 'Cần xem', 'Không tìm thấy', '2026-10-14', 'Đã gọi khách']);
-  assert.deepEqual(rows[1].slice(4), ['W1', 'Đang chờ', 'Chờ giao', '2026-10-21', '']);
+  assert.deepEqual(rows[0], [7, '2026-01-04 09:52:54', 'Shopee', '394729963', '2601XX', 'Cần xem', 'Không tìm thấy', '2026-10-14', 'Đã gọi khách', 0]);
+  assert.deepEqual(rows[1].slice(4), ['W1', 'Đang chờ', 'Chờ giao', '2026-10-21', '', 0]);
 });
 
 test('batchSummaryRows reports counts', () => {
@@ -56,4 +56,31 @@ test('splitPendingByFailed keeps rows of successful phones only', () => {
   assert.deepEqual(r.keep.map(x => x[0]), ['B']);
   assert.deepEqual(r.failed.map(x => x[0]), ['A', 'C']);
   assert.deepEqual(r.notInBatch, ['0999999999']);
+});
+
+test('reviewToRows carries the "not found" counter only for not-found rows', () => {
+  const { REASONS } = require('../src/rules.js');
+  const prev = [[7, '', '', '', '2601XX', '', '', '2026-10-14', '', 3]];
+  const nf = reviewToRows([{ submission: sub, kind: 'warn', reason: REASONS.NOT_FOUND }], prev, '2026-10-21');
+  assert.equal(nf[0][9], 3);
+  const other = reviewToRows([{ submission: sub, kind: 'wait', reason: REASONS.NOT_DELIVERED }], prev, '2026-10-21');
+  assert.equal(other[0][9], 0);
+});
+
+test('planReviewOnConfirm: 4 reasons leave at once, not found after 5 confirmed batches, others stay', () => {
+  const { planReviewOnConfirm } = require('../src/sheets.js');
+  const { REASONS } = require('../src/rules.js');
+  const row = (n, code, reason, count) => [n, '', '', '', code, '', reason, '', '', count];
+  const plan = planReviewOnConfirm([
+    row(1, 'a1', REASONS.PHONE_INVALID, 0),
+    row(2, 'A2', REASONS.TAKEN_BY_OTHER, 0),
+    row(3, 'A3', REASONS.NOT_MARKETPLACE, 0),
+    row(4, 'A4', REASONS.VOIDED, 0),
+    row(5, 'A5', REASONS.NOT_FOUND, 4),
+    row(6, 'A6', REASONS.NOT_FOUND, 1),
+    row(7, 'A7', REASONS.NOT_DELIVERED, 0),
+    row(8, 'A8', REASONS.UNKNOWN_TIER, 0),
+  ]);
+  assert.deepEqual(plan.excluded, ['1|A1', '2|A2', '3|A3', '4|A4', '5|A5']);
+  assert.deepEqual(plan.keep.map(r => [r[0], r[9]]), [[6, 2], [7, 0], [8, 0]]);
 });

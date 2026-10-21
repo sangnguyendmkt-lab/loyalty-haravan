@@ -14,6 +14,7 @@ var SHEETS = {
   CUSTOMERS: 'Khách hàng Haravan',
   ORDERS: 'Đơn Haravan',
   PENDING: 'Đợt - chi tiết',
+  EXCLUDED: 'Đã loại',
 };
 
 var HEADERS = {};
@@ -24,7 +25,8 @@ HEADERS[SHEETS.PENDING] = HEADERS[SHEETS.LEDGER];
 HEADERS[SHEETS.HISTORY] = ['Mã đợt', 'Tạo lúc', 'Người tạo', 'Số khách', 'Số đơn', 'Tổng điểm', 'Trạng thái',
   'Người xác nhận/huỷ', 'Lúc xác nhận/huỷ', 'SĐT lỗi', 'File'];
 HEADERS[SHEETS.REVIEW] = ['Dòng form', 'Thời gian khai', 'Kênh', 'SĐT', 'Mã đơn', 'Loại', 'Lý do',
-  'Lần đầu thấy', 'Ghi chú'];
+  'Lần đầu thấy', 'Ghi chú', 'Số đợt ✅ không thấy'];
+HEADERS[SHEETS.EXCLUDED] = ['Khoá (dòng form|mã)', 'Ngày loại'];
 HEADERS[SHEETS.ORDERS] = ['ID', 'Mã đơn', 'Mã đơn sàn', 'Mã vận chuyển đối tác', 'Ngày tạo',
   'Ngày giao thành công', 'Đã giao', 'Huỷ/Hoàn', 'Giá trị sau giảm', 'Tỉnh', 'Cập nhật lúc', 'Nguồn đơn'];
 
@@ -151,8 +153,35 @@ function reviewToRows(review, previousRows, todayKey) {
     var ts = parseFormTimestamp(s.timestamp);
     return [s.row, ts ? formatIsoVN(ts).slice(0, 19).replace('T', ' ') : String(s.timestamp || ''), s.channel,
       String(s.phoneRaw === null || s.phoneRaw === undefined ? '' : s.phoneRaw), code,
-      it.kind === 'warn' ? 'Cần xem' : 'Đang chờ', it.reason, old ? old[7] : todayKey, old ? old[8] : ''];
+      it.kind === 'warn' ? 'Cần xem' : 'Đang chờ', it.reason, old ? old[7] : todayKey, old ? old[8] : '',
+      it.reason === REASONS.NOT_FOUND && old ? Number(old[9]) || 0 : 0];
   });
+}
+
+/** Review reasons dropped for good at the first ✅, and how many ✅ batches a "not found" code survives. */
+var EXCLUDE_AT_CONFIRM = [REASONS.PHONE_INVALID, REASONS.TAKEN_BY_OTHER, REASONS.NOT_MARKETPLACE, REASONS.VOIDED];
+var NOT_FOUND_CONFIRM_LIMIT = 5;
+
+/** Key of one claimed code, the same for review rows and expanded submissions. */
+function claimKey(row, code) { return String(row) + '|' + normalizeCode(code); }
+
+/**
+ * On ✅: "not found" rows count one more confirmed batch; rows with an EXCLUDE_AT_CONFIRM reason, or not
+ * found NOT_FOUND_CONFIRM_LIMIT times, leave "Cần kiểm tra" for good. Returns {keep: rows, excluded: keys}.
+ */
+function planReviewOnConfirm(rows) {
+  var keep = [], excluded = [];
+  rows.forEach(function (r) {
+    var reason = String(r[6]);
+    if (EXCLUDE_AT_CONFIRM.indexOf(reason) >= 0) { excluded.push(claimKey(r[0], r[4])); return; }
+    if (reason === REASONS.NOT_FOUND) {
+      var n = (Number(r[9]) || 0) + 1;
+      if (n >= NOT_FOUND_CONFIRM_LIMIT) { excluded.push(claimKey(r[0], r[4])); return; }
+      r = r.slice(); r[9] = n;
+    }
+    keep.push(r);
+  });
+  return { keep: keep, excluded: excluded };
 }
 
 function batchSummaryRows(meta, exportRows, credits, review) {
@@ -288,7 +317,8 @@ function setupSheets() {
     if (name === SHEETS.LEDGER) sh.getRange('A:C').setNumberFormat('@');
     if (name === SHEETS.REVIEW) sh.getRange('D:E').setNumberFormat('@');
     if (name === SHEETS.ORDERS) sh.getRange('A:L').setNumberFormat('@');
-    if (name === SHEETS.ORDERS || name === SHEETS.PENDING) sh.hideSheet();
+    if (name === SHEETS.ORDERS || name === SHEETS.PENDING || name === SHEETS.EXCLUDED) sh.hideSheet();
+    if (name === SHEETS.EXCLUDED) sh.getRange('A:A').setNumberFormat('@');
     if (name === SHEETS.PENDING) sh.getRange('A:C').setNumberFormat('@');
   });
   var blank = ss.getSheetByName('Sheet1') || ss.getSheetByName('Trang tính1');
@@ -430,6 +460,9 @@ if (typeof module !== 'undefined') module.exports = {
   reportToRows: reportToRows,
   creditsToLedgerRows: creditsToLedgerRows,
   reviewToRows: reviewToRows,
+  claimKey: claimKey,
+  planReviewOnConfirm: planReviewOnConfirm,
+  NOT_FOUND_CONFIRM_LIMIT: NOT_FOUND_CONFIRM_LIMIT,
   batchSummaryRows: batchSummaryRows,
   rowToOrder: rowToOrder,
 };
