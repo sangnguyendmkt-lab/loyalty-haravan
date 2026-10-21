@@ -77,9 +77,11 @@ test('customersFromSheetRows reads the Haravan customer export by header names',
     header,
     ['Nguyễn Thị Đào', 397192888, 'dao@x.com', '', 1314999, '1,314,999', 'Silver', 13, '2026-08-16T18:42:53+07:00'],
     ['Khách mới', '0907462499', '', 'Huế', 0, 0, '', 0, ''],
+    ['Không SĐT', '', 'Ha@x.com', '', 0, 0, '', 0, ''],
     ['', '', '', '', '', '', '', '', ''],
   ]);
   assert.equal(m.size, 2);
+  assert.deepEqual([...m.emailOwners], [['dao@x.com', '0397192888'], ['ha@x.com', '']]);
   const c = m.get('0397192888');
   assert.deepEqual([c.name, c.email, c.tier, c.points, c.totalSpent, c.periodSpent],
     ['Nguyễn Thị Đào', 'dao@x.com', 'Silver', 13, 1314999, 1314999]);

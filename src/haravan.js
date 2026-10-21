@@ -116,8 +116,11 @@ function customersFromSheetRows(rows) {
   });
   if (missing.length) throw new Error('File khách hàng thiếu cột: ' + missing.join(', ') + '. Hãy dán đúng file xuất từ Haravan.');
   var out = new Map();
+  out.emailOwners = new Map(); // every customer's email, also those without a usable phone (see buildExportRows)
   rows.slice(h + 1).forEach(function (r) {
     var phone = normalizePhone(r[col.phone]);
+    var email = cleanEmail(r[col.email]);
+    if (email && !out.emailOwners.has(email.toLowerCase())) out.emailOwners.set(email.toLowerCase(), phone || '');
     if (!phone) return;
     if (out.has(phone)) throw new Error('SĐT ' + phone + ' xuất hiện 2 lần trong sheet khách hàng. Hãy xoá sạch sheet rồi dán lại file mới.');
     out.set(phone, {

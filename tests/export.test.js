@@ -62,3 +62,38 @@ test('formatExportRow renders the 10 upload cells', () => {
     periodSpent: 6132448, totalSpent: 7380248, points: 61, lastOrderAt: new Date('2026-09-01T00:00:00Z'),
   }), ['Nguyễn Thị Trúc Linh', '0938845942', '', '', '', 'Thành phố Hồ Chí Minh', '6,132,448', '7,380,248', 61, '2026-09-01T07:00:00+07:00']);
 });
+
+test('cleanEmail keeps only well-formed emails', () => {
+  const { cleanEmail } = require('../src/rules.js');
+  assert.equal(cleanEmail(' Phamyen401@gmail.com '), 'Phamyen401@gmail.com');
+  ['', 'abc', 'a@b', 'a b@x.com', 'a@@x.com', 'x@gmail,com', null, undefined].forEach(v => assert.equal(cleanEmail(v), ''));
+});
+
+test('two new phones sharing a form email: earliest claimant keeps it, the other is left blank', () => {
+  const rows = buildExportRows([
+    credit('0397137618', 1124999, 11, { email: 'Phamyen401@gmail.com', ts: '26/09/2026 22:52:08' }),
+    credit('0397237618', 1085000, 11, { email: 'phamyen401@gmail.com', ts: '09/09/2026 14:02:33' }),
+  ], new Map());
+  const byPhone = Object.fromEntries(rows.map(r => [r.phone, r.email]));
+  assert.deepEqual(byPhone, { '0397137618': '', '0397237618': 'phamyen401@gmail.com' });
+});
+
+test('form email already owned on Haravan by another phone (or a phoneless customer) is not used', () => {
+  const customers = new Map([['0901111111', { phone: '0901111111', name: 'A', email: 'Owner@x.com', province: '', tier: '', points: 0, totalSpent: 0, periodSpent: 0, lastOrderAt: null }]]);
+  customers.emailOwners = new Map([['owner@x.com', '0901111111'], ['nophone@x.com', '']]);
+  const rows = buildExportRows([
+    credit('0902222222', 100000, 1, { email: 'owner@x.com' }),
+    credit('0903333333', 100000, 1, { email: 'nophone@x.com' }),
+    credit('0901111111', 100000, 1, { email: 'other@x.com' }),
+  ], customers);
+  assert.deepEqual(rows.map(r => r.email), ['Owner@x.com', '', '']);
+});
+
+test('invalid Haravan email is replaced by a valid form email; invalid form email gives blank', () => {
+  const customers = new Map([['0901111111', { phone: '0901111111', name: 'A', email: 'bad-email', province: '', tier: '', points: 0, totalSpent: 0, periodSpent: 0, lastOrderAt: null }]]);
+  const rows = buildExportRows([
+    credit('0901111111', 100000, 1, { email: 'good@x.com' }),
+    credit('0902222222', 100000, 1, { email: 'khong co' }),
+  ], customers);
+  assert.deepEqual(rows.map(r => r.email), ['good@x.com', '']);
+});

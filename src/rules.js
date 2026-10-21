@@ -193,18 +193,56 @@ function firstNonEmpty_(values) {
  * Group credits by phone and merge with current Haravan customers (spec R5, R12–R16).
  * Haravan name/email/province win; form/order values only fill blanks. Sorted by phone.
  */
+var EMAIL_RE = /^[A-Za-z0-9._%+-]+@[A-Za-z0-9-]+(\.[A-Za-z0-9-]+)*\.[A-Za-z]{2,}$/;
+
+/** Trimmed email if it is well-formed, else ''. */
+function cleanEmail(value) {
+  var e = String(value === null || value === undefined ? '' : value).trim();
+  return EMAIL_RE.test(e) ? e : '';
+}
+
+/**
+ * Haravan rejects an upload line whose email belongs to another customer, so the phone is the key and
+ * an email is used only when it is well-formed and owned by nobody else. Haravan's own email wins; a
+ * blank one is filled from the form; within one file the earliest form claimant keeps a shared email.
+ * customersByPhone.emailOwners (email lowercased -> phone, '' for customers without a phone) adds the
+ * owners that the phone map cannot hold.
+ */
 function buildExportRows(credits, customersByPhone) {
   var groups = new Map();
   credits.forEach(function (c) {
     if (!groups.has(c.phone)) groups.set(c.phone, []);
     groups.get(c.phone).push(c);
   });
-
-  var rows = [];
-  groups.forEach(function (list, phone) {
+  groups.forEach(function (list) {
     list.sort(function (a, b) {
       return parseFormTimestamp(a.submission.timestamp) - parseFormTimestamp(b.submission.timestamp);
     });
+  });
+  var phones = Array.from(groups.keys()).sort(function (a, b) {
+    return parseFormTimestamp(groups.get(a)[0].submission.timestamp) - parseFormTimestamp(groups.get(b)[0].submission.timestamp);
+  });
+
+  var owner = new Map(customersByPhone.emailOwners || []);
+  customersByPhone.forEach(function (cust, phone) {
+    var e = cleanEmail(cust.email);
+    if (e) owner.set(e.toLowerCase(), phone);
+  });
+  function claimEmail(candidates, phone) {
+    for (var i = 0; i < candidates.length; i++) {
+      var e = cleanEmail(candidates[i]);
+      if (!e) continue;
+      var key = e.toLowerCase();
+      if (owner.has(key) && owner.get(key) !== phone) continue;
+      owner.set(key, phone);
+      return e;
+    }
+    return '';
+  }
+
+  var rows = [];
+  phones.forEach(function (phone) {
+    var list = groups.get(phone);
     var cust = customersByPhone.get(phone);
     var newValue = 0, newPoints = 0, lastOrderAt = (cust && cust.lastOrderAt) || null;
     list.forEach(function (c) {
@@ -215,10 +253,11 @@ function buildExportRows(credits, customersByPhone) {
     var formNames = list.map(function (c) { return c.submission.name; });
     var formEmails = list.map(function (c) { return c.submission.email; });
     var orderProvinces = list.map(function (c) { return c.order.province; });
+    var ownEmail = cust && cleanEmail(cust.email);
     rows.push({
       name: firstNonEmpty_([cust && cust.name].concat(formNames)),
       phone: phone,
-      email: firstNonEmpty_([cust && cust.email].concat(formEmails)),
+      email: ownEmail || claimEmail(formEmails, phone),
       province: firstNonEmpty_([cust && cust.province].concat(orderProvinces)),
       periodSpent: ((cust && cust.periodSpent) || 0) + newValue,
       totalSpent: ((cust && cust.totalSpent) || 0) + newValue,
@@ -310,6 +349,7 @@ if (typeof module !== 'undefined') module.exports = {
   buildReport: buildReport,
   EXPORT_HEADERS: EXPORT_HEADERS,
   buildExportRows: buildExportRows,
+  cleanEmail: cleanEmail,
   formatExportRow: formatExportRow,
   REASONS: REASONS,
   buildOrderIndex: buildOrderIndex,
